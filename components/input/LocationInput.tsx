@@ -96,15 +96,16 @@ export function LocationInput({ onConvert, isLoading = false }: LocationInputPro
     <div className="space-y-4">
       <h2 className="text-sm font-medium text-gray-900">位置情報を入力</h2>
 
-      {/* 住所入力欄（準備中） */}
+      {/* 住所入力欄 */}
       <InputRow
         label="住所"
         placeholder="東京都千代田区..."
         value={addressInput}
         onChange={setAddressInput}
         onConvert={handleConvertAddress}
-        disabled={true}
+        disabled={false}
         isLoading={isLoading}
+        hint="例: 東京都千代田区丸の内1-1-1"
       />
 
       {/* WGS84座標入力欄 */}

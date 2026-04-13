@@ -2,6 +2,7 @@ import {
   ConversionResult,
   Coordinate,
   ParsedCoordinate,
+  ParsedAddress,
   InputSource,
 } from '@/lib/types';
 import { InputParser } from './InputParser';
@@ -9,6 +10,7 @@ import { CoordinateConverter } from './CoordinateConverter';
 import { DatumTransformer } from './DatumTransformer';
 import { ValidationService } from './ValidationService';
 import { MapUrlGenerator } from './MapUrlGenerator';
+import { GeocodingService } from './GeocodingService';
 
 /**
  * 変換サービス
@@ -20,19 +22,67 @@ export class ConversionService {
   private datumTransformer: DatumTransformer;
   private validationService: ValidationService;
   private mapUrlGenerator: MapUrlGenerator;
+  private geocodingService: GeocodingService;
 
   constructor(
     inputParser?: InputParser,
     coordinateConverter?: CoordinateConverter,
     datumTransformer?: DatumTransformer,
     validationService?: ValidationService,
-    mapUrlGenerator?: MapUrlGenerator
+    mapUrlGenerator?: MapUrlGenerator,
+    geocodingService?: GeocodingService
   ) {
     this.inputParser = inputParser || new InputParser();
     this.coordinateConverter = coordinateConverter || new CoordinateConverter();
     this.datumTransformer = datumTransformer || new DatumTransformer();
     this.validationService = validationService || new ValidationService();
     this.mapUrlGenerator = mapUrlGenerator || new MapUrlGenerator();
+    this.geocodingService = geocodingService || new GeocodingService();
+  }
+
+  /**
+   * 入力文字列を変換して結果を返す（非同期版）
+   * 住所入力の場合はジオコーディングを行う
+   * @param input 入力文字列
+   * @param source 入力ソース（どの入力欄から入力されたか）
+   * @returns 変換結果、または入力が不正な場合はnull
+   * @throws {GeocodingError} 住所変換に失敗した場合
+   */
+  async convertAsync(
+    input: string,
+    source: InputSource
+  ): Promise<ConversionResult | null> {
+    // 住所入力の場合はジオコーディングを使用
+    if (source === 'address') {
+      const result = await this.geocodingService.geocode(input);
+      const wgs84Coord = result.coordinate;
+      const tokyoCoord = this.datumTransformer.wgs84ToTokyo(wgs84Coord);
+      const mapUrls = this.mapUrlGenerator.generateAll(wgs84Coord);
+
+      const parsedAddress: ParsedAddress = {
+        fullAddress: result.matchedAddress,
+      };
+
+      return {
+        input: {
+          rawInput: input,
+          inputType: 'address',
+          confidence: 1.0,
+          parsedData: parsedAddress,
+        },
+        inputSource: source,
+        coordinates: {
+          wgs84: wgs84Coord,
+          tokyo: tokyoCoord,
+        },
+        mapUrls,
+        warnings: [],
+        timestamp: new Date(),
+      };
+    }
+
+    // 座標入力の場合は同期版を使用
+    return this.convert(input, source);
   }
 
   /**
@@ -42,7 +92,7 @@ export class ConversionService {
    * @returns 変換結果、または入力が不正な場合はnull
    */
   convert(input: string, source: InputSource): ConversionResult | null {
-    // 住所入力は現在未対応
+    // 住所入力は非同期版を使用する必要がある
     if (source === 'address') {
       return null;
     }

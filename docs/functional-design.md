@@ -7,12 +7,15 @@ graph TB
     User[ユーザー]
     UI[UIレイヤー]
     InputParser[入力パーサー]
+    GeocodingService[ジオコーディング]
     CoordinateConverter[座標変換エンジン]
     MapUrlGenerator[地図URL生成]
     LocalStorage[(ローカルストレージ)]
 
     User --> UI
     UI --> InputParser
+    UI --> GeocodingService
+    GeocodingService --> CoordinateConverter
     InputParser --> CoordinateConverter
     CoordinateConverter --> MapUrlGenerator
     UI --> LocalStorage
@@ -25,7 +28,7 @@ graph TB
     User[ユーザー]
 
     subgraph UILayer[UIレイヤー]
-        AddressInput[住所入力欄<br/>（準備中）]
+        AddressInput[住所入力欄]
         WGS84Input[WGS84入力欄]
         TokyoInput[Tokyo Datum入力欄]
         ResultDisplay[結果表示]
@@ -36,6 +39,7 @@ graph TB
 
     subgraph ServiceLayer[サービスレイヤー]
         InputParser[InputParser<br/>座標形式判定]
+        GeocodingService[GeocodingService<br/>住所→座標変換]
         CoordinateConverter[CoordinateConverter<br/>座標正規化]
         DatumTransformer[DatumTransformer<br/>WGS84↔Tokyo変換]
         ValidationService[ValidationService<br/>検証・警告生成]
@@ -46,10 +50,13 @@ graph TB
         LocalStorage[(LocalStorage<br/>履歴保存)]
     end
 
+    User --> AddressInput
     User --> WGS84Input
     User --> TokyoInput
+    AddressInput --> GeocodingService
     WGS84Input --> InputParser
     TokyoInput --> InputParser
+    GeocodingService --> DatumTransformer
     InputParser --> CoordinateConverter
     CoordinateConverter --> DatumTransformer
     DatumTransformer --> ValidationService
@@ -288,6 +295,50 @@ class ValidationService {
 
 **依存関係**:
 - なし
+
+### GeocodingService（ジオコーディング）
+
+**責務**:
+- 住所から座標への変換（ジオコーディング）
+- 国土地理院 地名検索APIとの通信
+- 住所文字列の正規化
+
+**インターフェース**:
+```typescript
+interface GeocodingResult {
+  coordinate: Coordinate;   // WGS84座標
+  matchedAddress: string;   // マッチした住所文字列
+}
+
+type GeocodingErrorCode = 'NOT_FOUND' | 'NETWORK_ERROR' | 'API_ERROR';
+
+class GeocodingError extends Error {
+  readonly code: GeocodingErrorCode;
+}
+
+class GeocodingService {
+  // 住所を座標に変換
+  async geocode(address: string): Promise<GeocodingResult>;
+}
+```
+
+**使用API**:
+- 国土地理院 地名検索API
+- エンドポイント: `https://msearch.gsi.go.jp/address-search/AddressSearch?q={住所}&limit=1`
+- 完全無料、登録不要、CORS対応
+- レスポンス: GeoJSON（座標は `[longitude, latitude]` 順）
+
+**エラーハンドリング**:
+| エラー種別 | エラーコード | ユーザーへの表示 |
+|-----------|-------------|-----------------|
+| 空入力 | NOT_FOUND | 「住所を入力してください」 |
+| 住所未発見 | NOT_FOUND | 「指定された住所が見つかりませんでした」 |
+| ネットワークエラー | NETWORK_ERROR | 「ネットワークエラーが発生しました」 |
+| タイムアウト | NETWORK_ERROR | 「接続がタイムアウトしました」 |
+| APIエラー | API_ERROR | 「APIエラーが発生しました」 |
+
+**依存関係**:
+- なし（ブラウザ標準のfetch APIを使用）
 
 ### MapUrlGenerator（地図URL生成）
 
@@ -636,9 +687,9 @@ class DatumTransformer {
 │                                                                 │
 │  位置情報を入力                                                  │
 │                                                                 │
-│  住所（準備中）                                                  │
+│  住所                                                           │
 │  ┌─────────────────────────────────────────────────┐ [変換]   │
-│  │                                                 │ (無効)   │
+│  │ 例: 東京都千代田区丸の内1-1-1                    │          │
 │  └─────────────────────────────────────────────────┘          │
 │                                                                 │
 │  世界測地系（WGS84）                                            │
@@ -681,7 +732,7 @@ class DatumTransformer {
 
 | 入力欄 | 測地系 | 変換処理 | 状態 |
 |--------|--------|----------|------|
-| 住所 | - | ジオコーディング→WGS84→Tokyo | 準備中（無効） |
+| 住所 | - | ジオコーディング→WGS84→Tokyo | 有効（国土地理院API使用） |
 | WGS84 | WGS84 | WGS84→Tokyo変換 | 有効 |
 | Tokyo Datum | Tokyo | Tokyo→WGS84変換 | 有効 |
 

@@ -1,4 +1,8 @@
 import { ConversionService } from '@/lib/services/ConversionService';
+import {
+  GeocodingService,
+  GeocodingError,
+} from '@/lib/services/GeocodingService';
 
 describe('ConversionService', () => {
   let service: ConversionService;
@@ -131,7 +135,7 @@ describe('ConversionService', () => {
       expect(result).toBeNull();
     });
 
-    it('住所入力はnullを返す（未対応）', () => {
+    it('住所入力はnullを返す（同期版では未対応）', () => {
       const result = service.convert('東京都千代田区', 'address');
 
       expect(result).toBeNull();
@@ -150,6 +154,77 @@ describe('ConversionService', () => {
         before.getTime()
       );
       expect(result!.timestamp.getTime()).toBeLessThanOrEqual(after.getTime());
+    });
+  });
+
+  describe('住所入力からの非同期変換（convertAsync）', () => {
+    it('住所を変換してWGS84とTokyo Datum座標を返す', async () => {
+      const mockGeocodingService = {
+        geocode: jest.fn().mockResolvedValue({
+          coordinate: { latitude: 35.6812, longitude: 139.7671 },
+          matchedAddress: '東京都千代田区',
+        }),
+      } as unknown as GeocodingService;
+
+      const serviceWithMock = new ConversionService(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockGeocodingService
+      );
+
+      const result = await serviceWithMock.convertAsync(
+        '東京都千代田区',
+        'address'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.inputSource).toBe('address');
+      expect(result!.input.inputType).toBe('address');
+      expect(result!.coordinates.wgs84.latitude).toBeCloseTo(35.6812, 4);
+      expect(result!.coordinates.wgs84.longitude).toBeCloseTo(139.7671, 4);
+      expect(result!.coordinates.tokyo).toBeDefined();
+      expect(result!.mapUrls.googleMaps).toContain('google.com/maps');
+    });
+
+    it('座標入力は同期版と同じ結果を返す', async () => {
+      const syncResult = service.convert('35.6812, 139.7671', 'wgs84');
+      const asyncResult = await service.convertAsync('35.6812, 139.7671', 'wgs84');
+
+      expect(asyncResult).not.toBeNull();
+      expect(asyncResult!.coordinates.wgs84.latitude).toBeCloseTo(
+        syncResult!.coordinates.wgs84.latitude,
+        6
+      );
+      expect(asyncResult!.coordinates.wgs84.longitude).toBeCloseTo(
+        syncResult!.coordinates.wgs84.longitude,
+        6
+      );
+    });
+
+    it('ジオコーディングエラーがスローされる', async () => {
+      const mockGeocodingService = {
+        geocode: jest
+          .fn()
+          .mockRejectedValue(
+            new GeocodingError('NOT_FOUND', '指定された住所が見つかりませんでした')
+          ),
+      } as unknown as GeocodingService;
+
+      const serviceWithMock = new ConversionService(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockGeocodingService
+      );
+
+      await expect(
+        serviceWithMock.convertAsync('存在しない住所', 'address')
+      ).rejects.toThrow(GeocodingError);
     });
   });
 });
