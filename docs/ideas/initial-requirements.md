@@ -1,0 +1,1 @@
+/docs/ideas/template-initial-requirementsのテンプレートを参考に、これまで壁打ちしてきた内容をここにまとめてください。
