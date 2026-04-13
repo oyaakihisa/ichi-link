@@ -29,29 +29,29 @@ export class GeocodingError extends Error {
 }
 
 /**
- * 国土地理院APIのレスポンス型
+ * APIレスポンスのエラー型
  */
-interface GsiApiResponse {
-  type: 'FeatureCollection';
-  features: Array<{
-    type: 'Feature';
-    geometry: {
-      type: 'Point';
-      coordinates: [number, number]; // [longitude, latitude]
-    };
-    properties: {
-      title: string;
-    };
-  }>;
+interface ApiErrorResponse {
+  error: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * APIレスポンスの成功型
+ */
+interface ApiSuccessResponse {
+  coordinate: Coordinate;
+  matchedAddress: string;
 }
 
 /**
  * ジオコーディングサービス
- * 国土地理院 地名検索APIを使用して住所→座標変換を行う
+ * Yahoo!ジオコーダAPIを使用して住所→座標変換を行う（API Route経由）
  */
 export class GeocodingService {
-  private readonly apiEndpoint =
-    'https://msearch.gsi.go.jp/address-search/AddressSearch';
+  private readonly apiEndpoint = '/api/geocode';
   private readonly timeoutMs: number;
 
   constructor(timeoutMs: number = 10000) {
@@ -71,7 +71,7 @@ export class GeocodingService {
       throw new GeocodingError('NOT_FOUND', '住所を入力してください');
     }
 
-    const url = `${this.apiEndpoint}?q=${encodeURIComponent(normalizedAddress)}&limit=1`;
+    const url = `${this.apiEndpoint}?address=${encodeURIComponent(normalizedAddress)}`;
 
     let response: Response;
     try {
@@ -93,37 +93,34 @@ export class GeocodingService {
       );
     }
 
+    const data = await response.json();
+
     if (!response.ok) {
-      throw new GeocodingError(
-        'API_ERROR',
-        `APIエラーが発生しました（${response.status}）`
-      );
+      const errorData = data as ApiErrorResponse;
+      const code = this.mapErrorCode(errorData.error?.code);
+      throw new GeocodingError(code, errorData.error?.message || 'エラーが発生しました');
     }
 
-    let data: GsiApiResponse;
-    try {
-      data = await response.json();
-    } catch {
-      throw new GeocodingError('API_ERROR', 'APIレスポンスの解析に失敗しました');
-    }
-
-    if (!data.features || data.features.length === 0) {
-      throw new GeocodingError(
-        'NOT_FOUND',
-        '指定された住所が見つかりませんでした'
-      );
-    }
-
-    const feature = data.features[0];
-    const [longitude, latitude] = feature.geometry.coordinates;
-
+    const successData = data as ApiSuccessResponse;
     return {
-      coordinate: {
-        latitude: Math.round(latitude * 1000000) / 1000000,
-        longitude: Math.round(longitude * 1000000) / 1000000,
-      },
-      matchedAddress: feature.properties.title,
+      coordinate: successData.coordinate,
+      matchedAddress: successData.matchedAddress,
     };
+  }
+
+  /**
+   * APIエラーコードをGeocodingErrorCodeにマッピング
+   */
+  private mapErrorCode(apiCode?: string): GeocodingErrorCode {
+    switch (apiCode) {
+      case 'NOT_FOUND':
+      case 'INVALID_REQUEST':
+        return 'NOT_FOUND';
+      case 'NETWORK_ERROR':
+        return 'NETWORK_ERROR';
+      default:
+        return 'API_ERROR';
+    }
   }
 
   /**

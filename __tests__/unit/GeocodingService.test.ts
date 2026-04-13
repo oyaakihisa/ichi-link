@@ -14,19 +14,8 @@ describe('GeocodingService', () => {
   describe('正常系', () => {
     it('住所を座標に変換できる', async () => {
       const mockResponse = {
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [139.7671, 35.6812], // [longitude, latitude]
-            },
-            properties: {
-              title: '東京都千代田区',
-            },
-          },
-        ],
+        coordinate: { latitude: 35.6812, longitude: 139.7671 },
+        matchedAddress: '東京都千代田区丸の内一丁目1番1号',
       };
 
       global.fetch = jest.fn().mockResolvedValue({
@@ -34,28 +23,17 @@ describe('GeocodingService', () => {
         json: () => Promise.resolve(mockResponse),
       });
 
-      const result = await service.geocode('東京都千代田区');
+      const result = await service.geocode('東京都千代田区丸の内1-1-1');
 
       expect(result.coordinate.latitude).toBeCloseTo(35.6812, 4);
       expect(result.coordinate.longitude).toBeCloseTo(139.7671, 4);
-      expect(result.matchedAddress).toBe('東京都千代田区');
+      expect(result.matchedAddress).toBe('東京都千代田区丸の内一丁目1番1号');
     });
 
-    it('座標が小数点以下6桁に丸められる', async () => {
+    it('API Routeに正しいパラメータでリクエストする', async () => {
       const mockResponse = {
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [139.76712345678, 35.68123456789],
-            },
-            properties: {
-              title: '東京都千代田区',
-            },
-          },
-        ],
+        coordinate: { latitude: 35.6812, longitude: 139.7671 },
+        matchedAddress: '東京都千代田区',
       };
 
       global.fetch = jest.fn().mockResolvedValue({
@@ -63,29 +41,20 @@ describe('GeocodingService', () => {
         json: () => Promise.resolve(mockResponse),
       });
 
-      const result = await service.geocode('東京都千代田区');
+      await service.geocode('東京都千代田区');
 
-      expect(result.coordinate.latitude).toBe(35.681235);
-      expect(result.coordinate.longitude).toBe(139.767123);
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/geocode?address='),
+        expect.any(Object)
+      );
     });
   });
 
   describe('住所の正規化', () => {
     it('全角数字が半角数字に変換される', async () => {
       const mockResponse = {
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [139.7671, 35.6812],
-            },
-            properties: {
-              title: '東京都千代田区丸の内1-1-1',
-            },
-          },
-        ],
+        coordinate: { latitude: 35.6812, longitude: 139.7671 },
+        matchedAddress: '東京都千代田区丸の内1-1-1',
       };
 
       global.fetch = jest.fn().mockResolvedValue({
@@ -105,19 +74,8 @@ describe('GeocodingService', () => {
 
     it('前後の空白が除去される', async () => {
       const mockResponse = {
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [139.7671, 35.6812],
-            },
-            properties: {
-              title: '東京都千代田区',
-            },
-          },
-        ],
+        coordinate: { latitude: 35.6812, longitude: 139.7671 },
+        matchedAddress: '東京都千代田区',
       };
 
       global.fetch = jest.fn().mockResolvedValue({
@@ -151,14 +109,12 @@ describe('GeocodingService', () => {
     });
 
     it('住所が見つからない場合NOT_FOUNDエラーを投げる', async () => {
-      const mockResponse = {
-        type: 'FeatureCollection',
-        features: [],
-      };
-
       global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({
+          error: { code: 'NOT_FOUND', message: '指定された住所が見つかりませんでした' },
+        }),
       });
 
       await expect(
@@ -192,24 +148,14 @@ describe('GeocodingService', () => {
     it('APIエラーレスポンスでAPI_ERRORを投げる', async () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: false,
-        status: 500,
+        status: 502,
+        json: () => Promise.resolve({
+          error: { code: 'API_ERROR', message: 'APIエラーが発生しました（500）' },
+        }),
       });
 
       await expect(service.geocode('東京都千代田区')).rejects.toMatchObject({
         code: 'API_ERROR',
-        message: 'APIエラーが発生しました（500）',
-      });
-    });
-
-    it('不正なJSONレスポンスでAPI_ERRORを投げる', async () => {
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.reject(new Error('Invalid JSON')),
-      });
-
-      await expect(service.geocode('東京都千代田区')).rejects.toMatchObject({
-        code: 'API_ERROR',
-        message: 'APIレスポンスの解析に失敗しました',
       });
     });
   });

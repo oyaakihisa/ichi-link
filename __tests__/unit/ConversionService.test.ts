@@ -226,5 +226,86 @@ describe('ConversionService', () => {
         serviceWithMock.convertAsync('存在しない住所', 'address')
       ).rejects.toThrow(GeocodingError);
     });
+
+    it('入力住所とマッチした住所が異なる場合に警告を生成する', async () => {
+      const mockGeocodingService = {
+        geocode: jest.fn().mockResolvedValue({
+          coordinate: { latitude: 37.424613, longitude: 137.088336 },
+          matchedAddress: '石川県輪島市町野町広江3-2-1',
+        }),
+      } as unknown as GeocodingService;
+
+      const serviceWithMock = new ConversionService(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockGeocodingService
+      );
+
+      const result = await serviceWithMock.convertAsync(
+        '石川県輪島市町野町広江3-2-1-hogehoge',
+        'address'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.warnings.length).toBe(1);
+      expect(result!.warnings[0].type).toBe('address_partial_match');
+      expect(result!.warnings[0].severity).toBe('info');
+      expect(result!.warnings[0].message).toContain('石川県輪島市町野町広江3-2-1');
+    });
+
+    it('入力住所とマッチした住所が同じ場合は警告なし', async () => {
+      const mockGeocodingService = {
+        geocode: jest.fn().mockResolvedValue({
+          coordinate: { latitude: 35.6812, longitude: 139.7671 },
+          matchedAddress: '東京都千代田区丸の内1-1-1',
+        }),
+      } as unknown as GeocodingService;
+
+      const serviceWithMock = new ConversionService(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockGeocodingService
+      );
+
+      const result = await serviceWithMock.convertAsync(
+        '東京都千代田区丸の内1-1-1',
+        'address'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.warnings.length).toBe(0);
+    });
+
+    it('丁目表記の違いは同一住所として扱う', async () => {
+      const mockGeocodingService = {
+        geocode: jest.fn().mockResolvedValue({
+          coordinate: { latitude: 35.6812, longitude: 139.7671 },
+          matchedAddress: '東京都千代田区丸の内1丁目1番1号',
+        }),
+      } as unknown as GeocodingService;
+
+      const serviceWithMock = new ConversionService(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockGeocodingService
+      );
+
+      const result = await serviceWithMock.convertAsync(
+        '東京都千代田区丸の内1-1-1',
+        'address'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.warnings.length).toBe(0);
+    });
   });
 });

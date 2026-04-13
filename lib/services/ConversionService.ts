@@ -4,6 +4,7 @@ import {
   ParsedCoordinate,
   ParsedAddress,
   InputSource,
+  Warning,
 } from '@/lib/types';
 import { InputParser } from './InputParser';
 import { CoordinateConverter } from './CoordinateConverter';
@@ -63,6 +64,21 @@ export class ConversionService {
         fullAddress: result.matchedAddress,
       };
 
+      // 入力住所とマッチした住所を比較して警告を生成
+      const warnings: Warning[] = [];
+      const normalizedInput = this.normalizeAddressForComparison(input);
+      const normalizedMatched = this.normalizeAddressForComparison(
+        result.matchedAddress
+      );
+
+      if (normalizedInput !== normalizedMatched) {
+        warnings.push({
+          type: 'address_partial_match',
+          message: `「${result.matchedAddress}」までの情報で位置を特定しました`,
+          severity: 'info',
+        });
+      }
+
       return {
         input: {
           rawInput: input,
@@ -76,7 +92,7 @@ export class ConversionService {
           tokyo: tokyoCoord,
         },
         mapUrls,
-        warnings: [],
+        warnings,
         timestamp: new Date(),
       };
     }
@@ -149,5 +165,31 @@ export class ConversionService {
       warnings,
       timestamp: new Date(),
     };
+  }
+
+  /**
+   * 住所を比較用に正規化する
+   * - 全角数字→半角数字
+   * - 全角ハイフン類→半角ハイフン
+   * - 空白除去
+   * - 「丁目」「番」「号」を正規化
+   */
+  private normalizeAddressForComparison(address: string): string {
+    return address
+      .trim()
+      // 全角数字→半角
+      .replace(/[０-９]/g, (char) =>
+        String.fromCharCode(char.charCodeAt(0) - 0xfee0)
+      )
+      // 全角ハイフン類→半角
+      .replace(/[ー−‐―]/g, '-')
+      // 「丁目」「番地」「番」「号」をハイフンに統一
+      .replace(/丁目|番地|番|号/g, '-')
+      // 連続するハイフンを1つに
+      .replace(/-+/g, '-')
+      // 末尾のハイフンを除去
+      .replace(/-$/, '')
+      // 空白除去
+      .replace(/\s+/g, '');
   }
 }

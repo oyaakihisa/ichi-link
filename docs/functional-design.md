@@ -177,7 +177,8 @@ type WarningType =
   | 'coordinate_order_ambiguous'   // 緯度経度の順番が曖昧
   | 'outside_japan'                // 日本国外の座標
   | 'low_confidence'               // 判定の確信度が低い
-  | 'coordinate_swap_suggested';   // 緯度経度入れ替えの提案
+  | 'coordinate_swap_suggested'    // 緯度経度入れ替えの提案
+  | 'address_partial_match';       // 住所が部分的にマッチ（入力より短い住所でマッチ）
 ```
 
 ### エンティティ: ConversionHistory（変換履歴）
