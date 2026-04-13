@@ -301,8 +301,9 @@ class ValidationService {
 
 **責務**:
 - 住所から座標への変換（ジオコーディング）
-- 国土地理院 地名検索APIとの通信
+- Yahoo!ジオコーダAPIとの通信（API Route経由）
 - 住所文字列の正規化
+- 入力住所とマッチ住所の比較による警告生成
 
 **インターフェース**:
 ```typescript
@@ -324,10 +325,11 @@ class GeocodingService {
 ```
 
 **使用API**:
-- 国土地理院 地名検索API
-- エンドポイント: `https://msearch.gsi.go.jp/address-search/AddressSearch?q={住所}&limit=1`
-- 完全無料、登録不要、CORS対応
-- レスポンス: GeoJSON（座標は `[longitude, latitude]` 順）
+- Yahoo!ジオコーダAPI（API Route `/api/geocode` 経由）
+- エンドポイント: `https://map.yahooapis.jp/geocode/V1/geoCoder`
+- 無料枠: 1日5万リクエスト
+- 要件: Yahoo! Client ID（環境変数 `YAHOO_CLIENT_ID`）
+- 精度: 番地レベル
 
 **エラーハンドリング**:
 | エラー種別 | エラーコード | ユーザーへの表示 |
@@ -733,7 +735,7 @@ class DatumTransformer {
 
 | 入力欄 | 測地系 | 変換処理 | 状態 |
 |--------|--------|----------|------|
-| 住所 | - | ジオコーディング→WGS84→Tokyo | 有効（国土地理院API使用） |
+| 住所 | - | ジオコーディング→WGS84→Tokyo | 有効（Yahoo!ジオコーダAPI使用） |
 | WGS84 | WGS84 | WGS84→Tokyo変換 | 有効 |
 | Tokyo Datum | Tokyo | Tokyo→WGS84変換 | 有効 |
 
