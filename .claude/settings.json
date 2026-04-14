@@ -6,7 +6,12 @@
       "Skill(architecture-design)",
       "Skill(repository-structure)",
       "Skill(development-guidelines)",
-      "Skill(glossary-creation)"
+      "Skill(glossary-creation)",
+      "Bash(npm run lint*)",
+      "Bash(npm test*)",
+      "Bash(npx tsc*)",
+      "Bash(npm run build*)",
+      "Edit(.steering/**)"
     ],
     "deny": [],
     "ask": []
