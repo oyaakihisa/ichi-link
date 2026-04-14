@@ -75,7 +75,7 @@ export class ConversionService {
         warnings.push({
           type: 'address_partial_match',
           message: `「${result.matchedAddress}」までの情報で位置を特定しました`,
-          severity: 'info',
+          severity: 'error',
         });
       }
 

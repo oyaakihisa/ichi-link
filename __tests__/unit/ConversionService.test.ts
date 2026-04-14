@@ -252,7 +252,7 @@ describe('ConversionService', () => {
       expect(result).not.toBeNull();
       expect(result!.warnings.length).toBe(1);
       expect(result!.warnings[0].type).toBe('address_partial_match');
-      expect(result!.warnings[0].severity).toBe('info');
+      expect(result!.warnings[0].severity).toBe('error');
       expect(result!.warnings[0].message).toContain('石川県輪島市町野町広江3-2-1');
     });
 
