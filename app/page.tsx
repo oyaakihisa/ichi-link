@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { LocationInput } from '@/components/input/LocationInput';
-import { ConversionResult } from '@/components/result/ConversionResult';
-import { useConversion } from '@/components/hooks/useConversion';
+import { LocationInput } from "@/components/input/LocationInput";
+import { ConversionResult } from "@/components/result/ConversionResult";
+import { useConversion } from "@/components/hooks/useConversion";
 
 export default function Home() {
   const { result, error, isLoading, convert } = useConversion();
@@ -12,11 +12,9 @@ export default function Home() {
       <main className="max-w-2xl mx-auto px-4 py-8">
         {/* ヘッダー */}
         <header className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            ichi-link
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">ichi-link</h1>
           <p className="text-sm text-gray-600">
-            位置情報コンバータ &amp; マップランチャー
+            位置情報変換ツール &amp; マップランチャー
           </p>
         </header>
 

@@ -70,14 +70,14 @@ graph TB
 
 ## 技術スタック
 
-| 分類 | 技術 | 選定理由 |
-|------|------|----------|
-| 言語 | TypeScript 5.x | 型安全性、開発効率、Node.js環境との親和性 |
-| フレームワーク | Next.js 15 (React 19) | Vercelとの親和性、App Router、将来のAPI Routes対応 |
-| スタイリング | Tailwind CSS | ユーティリティファースト、レスポンシブ対応 |
-| 座標変換 | proj4js | 測地系変換のデファクトスタンダード |
-| テスト | Jest + React Testing Library | Next.js公式サポート、広いエコシステム |
-| デプロイ | Vercel | Next.js開発元、自動デプロイ、無料枠あり |
+| 分類           | 技術                         | 選定理由                                           |
+| -------------- | ---------------------------- | -------------------------------------------------- |
+| 言語           | TypeScript 5.x               | 型安全性、開発効率、Node.js環境との親和性          |
+| フレームワーク | Next.js 15 (React 19)        | Vercelとの親和性、App Router、将来のAPI Routes対応 |
+| スタイリング   | Tailwind CSS                 | ユーティリティファースト、レスポンシブ対応         |
+| 座標変換       | proj4js                      | 測地系変換のデファクトスタンダード                 |
+| テスト         | Jest + React Testing Library | Next.js公式サポート、広いエコシステム              |
+| デプロイ       | Vercel                       | Next.js開発元、自動デプロイ、無料枠あり            |
 
 ## データモデル定義
 
@@ -85,53 +85,53 @@ graph TB
 
 ```typescript
 interface LocationInput {
-  rawInput: string;              // 生の入力文字列
-  inputType: InputType;          // 判定された入力種別
-  confidence: number;            // 判定の確信度 (0-1)
-  parsedData: ParsedCoordinate | ParsedAddress | null;  // パース結果
+  rawInput: string; // 生の入力文字列
+  inputType: InputType; // 判定された入力種別
+  confidence: number; // 判定の確信度 (0-1)
+  parsedData: ParsedCoordinate | ParsedAddress | null; // パース結果
 }
 
 type InputType =
-  | 'coordinate_decimal'    // 十進度形式の座標
-  | 'coordinate_dms'        // 度分秒形式の座標
-  | 'address'               // 住所
-  | 'unknown';              // 判定不能
+  | "coordinate_decimal" // 十進度形式の座標
+  | "coordinate_dms" // 度分秒形式の座標
+  | "address" // 住所
+  | "unknown"; // 判定不能
 ```
 
 ### エンティティ: ParsedCoordinate（パース済み座標）
 
 ```typescript
 interface ParsedCoordinate {
-  latitude: number;              // 緯度（十進度）
-  longitude: number;             // 経度（十進度）
-  originalFormat: CoordinateFormat;  // 元の形式
+  latitude: number; // 緯度（十進度）
+  longitude: number; // 経度（十進度）
+  originalFormat: CoordinateFormat; // 元の形式
 }
 
 type CoordinateFormat =
-  | 'decimal'               // 十進度 (35.6812)
-  | 'dms'                   // 度分秒 (35°40'52")
-  | 'dmm';                  // 度分 (35°40.867')
+  | "decimal" // 十進度 (35.6812)
+  | "dms" // 度分秒 (35°40'52")
+  | "dmm"; // 度分 (35°40.867')
 
 type Datum =
-  | 'WGS84'                 // 世界測地系
-  | 'TOKYO';                // 旧日本測地系
+  | "WGS84" // 世界測地系
+  | "TOKYO"; // 旧日本測地系
 
 // 入力ソース（どの入力欄から入力されたか）
 type InputSource =
-  | 'address'               // 住所入力欄
-  | 'wgs84'                 // WGS84座標入力欄
-  | 'tokyo';                // Tokyo Datum座標入力欄
+  | "address" // 住所入力欄
+  | "wgs84" // WGS84座標入力欄
+  | "tokyo"; // Tokyo Datum座標入力欄
 ```
 
 ### エンティティ: ParsedAddress（パース済み住所）
 
 ```typescript
 interface ParsedAddress {
-  fullAddress: string;           // 正規化された住所
-  prefecture?: string;           // 都道府県
-  city?: string;                 // 市区町村
-  town?: string;                 // 町名
-  block?: string;                // 番地
+  fullAddress: string; // 正規化された住所
+  prefecture?: string; // 都道府県
+  city?: string; // 市区町村
+  town?: string; // 町名
+  block?: string; // 番地
 }
 ```
 
@@ -139,21 +139,21 @@ interface ParsedAddress {
 
 ```typescript
 interface ConversionResult {
-  input: LocationInput;          // 入力データ
-  inputSource: InputSource;      // 入力元（どの入力欄から）
+  input: LocationInput; // 入力データ
+  inputSource: InputSource; // 入力元（どの入力欄から）
   coordinates: {
-    wgs84: Coordinate;           // WGS84座標
-    tokyo: Coordinate;           // 旧日本測地系（Tokyo Datum）座標
+    wgs84: Coordinate; // WGS84座標
+    tokyo: Coordinate; // 旧日本測地系（Tokyo Datum）座標
   };
-  address?: string;              // 逆ジオコーディング結果（将来）
-  mapUrls: MapUrls;              // 各地図サービスのURL
-  warnings: Warning[];           // 警告一覧
-  timestamp: Date;               // 変換日時
+  address?: string; // 逆ジオコーディング結果（将来）
+  mapUrls: MapUrls; // 各地図サービスのURL
+  warnings: Warning[]; // 警告一覧
+  timestamp: Date; // 変換日時
 }
 
 interface Coordinate {
-  latitude: number;              // 緯度（小数点以下6桁）
-  longitude: number;             // 経度（小数点以下6桁）
+  latitude: number; // 緯度（小数点以下6桁）
+  longitude: number; // 経度（小数点以下6桁）
 }
 
 interface MapUrls {
@@ -170,25 +170,25 @@ interface MapUrls {
 interface Warning {
   type: WarningType;
   message: string;
-  severity: 'info' | 'warning' | 'error';
+  severity: "info" | "warning" | "error";
 }
 
 type WarningType =
-  | 'coordinate_order_ambiguous'   // 緯度経度の順番が曖昧
-  | 'outside_japan'                // 日本国外の座標
-  | 'low_confidence'               // 判定の確信度が低い
-  | 'coordinate_swap_suggested'    // 緯度経度入れ替えの提案
-  | 'address_partial_match';       // 住所が部分的にマッチ（入力より短い住所でマッチ）
+  | "coordinate_order_ambiguous" // 緯度経度の順番が曖昧
+  | "outside_japan" // 日本国外の座標
+  | "low_confidence" // 判定の確信度が低い
+  | "coordinate_swap_suggested" // 緯度経度入れ替えの提案
+  | "address_partial_match"; // 住所が部分的にマッチ（入力より短い住所でマッチ）
 ```
 
 ### エンティティ: ConversionHistory（変換履歴）
 
 ```typescript
 interface ConversionHistory {
-  id: string;                    // UUID
-  input: string;                 // 入力文字列
-  result: ConversionResult;      // 変換結果
-  createdAt: Date;               // 作成日時
+  id: string; // UUID
+  input: string; // 入力文字列
+  result: ConversionResult; // 変換結果
+  createdAt: Date; // 作成日時
 }
 ```
 
@@ -197,10 +197,12 @@ interface ConversionHistory {
 ### InputParser（入力パーサー）
 
 **責務**:
+
 - 座標形式（十進度/度分秒）を識別する
 - 座標文字列をパースして緯度・経度を抽出する
 
 **インターフェース**:
+
 ```typescript
 class InputParser {
   // 入力を解析して座標形式を判定
@@ -221,23 +223,30 @@ class InputParser {
 ```
 
 **依存関係**:
+
 - なし（純粋な文字列処理）
 
 ### CoordinateConverter（座標変換エンジン）
 
 **責務**:
+
 - 度分秒から十進度への変換
 - 十進度から度分秒への変換
 - 座標のフォーマット統一
 
 **インターフェース**:
+
 ```typescript
 class CoordinateConverter {
   // 度分秒を十進度に変換
   dmsToDecimal(degrees: number, minutes: number, seconds: number): number;
 
   // 十進度を度分秒に変換
-  decimalToDms(decimal: number): { degrees: number; minutes: number; seconds: number };
+  decimalToDms(decimal: number): {
+    degrees: number;
+    minutes: number;
+    seconds: number;
+  };
 
   // 座標を正規化（小数点以下6桁）
   normalize(coordinate: Coordinate): Coordinate;
@@ -245,14 +254,17 @@ class CoordinateConverter {
 ```
 
 **依存関係**:
+
 - なし（純粋な計算処理）
 
 ### DatumTransformer（測地系変換）
 
 **責務**:
+
 - WGS84 ↔ 旧日本測地系(Tokyo Datum) の相互変換
 
 **インターフェース**:
+
 ```typescript
 class DatumTransformer {
   // WGS84から旧日本測地系への変換
@@ -264,20 +276,24 @@ class DatumTransformer {
 ```
 
 **変換精度**:
+
 - WGS84 ↔ Tokyo Datum の差: 約400-500m
 - proj4jsの変換パラメータ: `+towgs84=-146.414,507.337,680.507,0,0,0,0`
 
 **依存関係**:
+
 - proj4js（測地系変換ライブラリ）
 
 ### ValidationService（検証・警告生成）
 
 **責務**:
+
 - 入力値の妥当性検証
 - 警告の生成
 - 曖昧性の検出
 
 **インターフェース**:
+
 ```typescript
 class ValidationService {
   // 座標が日本国内かどうかを検証
@@ -295,24 +311,27 @@ class ValidationService {
 ```
 
 **依存関係**:
+
 - なし
 
 ### GeocodingService（ジオコーディング）
 
 **責務**:
+
 - 住所から座標への変換（ジオコーディング）
 - Yahoo!ジオコーダAPIとの通信（API Route経由）
 - 住所文字列の正規化
 - 入力住所とマッチ住所の比較による警告生成
 
 **インターフェース**:
+
 ```typescript
 interface GeocodingResult {
-  coordinate: Coordinate;   // WGS84座標
-  matchedAddress: string;   // マッチした住所文字列
+  coordinate: Coordinate; // WGS84座標
+  matchedAddress: string; // マッチした住所文字列
 }
 
-type GeocodingErrorCode = 'NOT_FOUND' | 'NETWORK_ERROR' | 'API_ERROR';
+type GeocodingErrorCode = "NOT_FOUND" | "NETWORK_ERROR" | "API_ERROR";
 
 class GeocodingError extends Error {
   readonly code: GeocodingErrorCode;
@@ -325,6 +344,7 @@ class GeocodingService {
 ```
 
 **使用API**:
+
 - Yahoo!ジオコーダAPI（API Route `/api/geocode` 経由）
 - エンドポイント: `https://map.yahooapis.jp/geocode/V1/geoCoder`
 - 無料枠: 1日5万リクエスト
@@ -346,15 +366,18 @@ class GeocodingService {
 | 入力住所とマッチ住所が異なる | address_partial_match | 「〇〇」までの情報で位置を特定しました |
 
 **依存関係**:
+
 - なし（ブラウザ標準のfetch APIを使用）
 
 ### MapUrlGenerator（地図URL生成）
 
 **責務**:
+
 - 各地図サービスのURL生成
 - URLパラメータの適切なエンコード
 
 **インターフェース**:
+
 ```typescript
 class MapUrlGenerator {
   // 全地図サービスのURLを生成
@@ -375,6 +398,7 @@ class MapUrlGenerator {
 ```
 
 **依存関係**:
+
 - なし
 
 ## ユースケース図
@@ -415,6 +439,7 @@ sequenceDiagram
 ```
 
 **フロー説明**:
+
 1. ユーザーがWGS84入力欄に座標を貼り付け
 2. InputParserが座標形式を判定（十進度/度分秒）
 3. CoordinateConverterが座標を正規化
@@ -457,6 +482,7 @@ sequenceDiagram
 ```
 
 **フロー説明**:
+
 1. ユーザーがTokyo Datum入力欄に座標を貼り付け
 2. InputParserが座標形式を判定
 3. CoordinateConverterが座標を正規化
@@ -514,6 +540,7 @@ stateDiagram-v2
 **計算ロジック**:
 
 #### ステップ1: 前処理
+
 - 全角数字を半角に変換
 - 前後の空白を除去
 - 複数の空白を単一に正規化
@@ -567,7 +594,7 @@ class InputParser {
     if (decimalResult) {
       return {
         rawInput: input,
-        inputType: 'coordinate_decimal',
+        inputType: "coordinate_decimal",
         confidence: decimalResult.confidence,
         parsedData: decimalResult.coordinate,
       };
@@ -578,7 +605,7 @@ class InputParser {
     if (dmsResult) {
       return {
         rawInput: input,
-        inputType: 'coordinate_dms',
+        inputType: "coordinate_dms",
         confidence: dmsResult.confidence,
         parsedData: dmsResult.coordinate,
       };
@@ -586,7 +613,7 @@ class InputParser {
 
     return {
       rawInput: input,
-      inputType: 'unknown',
+      inputType: "unknown",
       confidence: 0,
       parsedData: null,
     };
@@ -594,11 +621,11 @@ class InputParser {
 
   private normalize(input: string): string {
     return input
-      .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-      .replace(/[．]/g, '.')
-      .replace(/[，]/g, ',')
+      .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
+      .replace(/[．]/g, ".")
+      .replace(/[，]/g, ",")
       .trim()
-      .replace(/\s+/g, ' ');
+      .replace(/\s+/g, " ");
   }
 }
 ```
@@ -661,25 +688,32 @@ class DatumTransformer {
   // Tokyo Datum: EPSG:4301
 
   private static readonly TOKYO_PROJ =
-    '+proj=longlat +ellps=bessel +towgs84=-146.414,507.337,680.507,0,0,0,0 +no_defs';
+    "+proj=longlat +ellps=bessel +towgs84=-146.414,507.337,680.507,0,0,0,0 +no_defs";
 
   wgs84ToTokyo(coord: Coordinate): Coordinate {
     // WGS84 → Tokyo Datum
     // 結果は約400-500m南西にシフト
-    const result = proj4('EPSG:4326', this.TOKYO_PROJ, [coord.longitude, coord.latitude]);
+    const result = proj4("EPSG:4326", this.TOKYO_PROJ, [
+      coord.longitude,
+      coord.latitude,
+    ]);
     return this.normalize({ latitude: result[1], longitude: result[0] });
   }
 
   tokyoToWgs84(coord: Coordinate): Coordinate {
     // Tokyo Datum → WGS84
     // 結果は約400-500m北東にシフト
-    const result = proj4(this.TOKYO_PROJ, 'EPSG:4326', [coord.longitude, coord.latitude]);
+    const result = proj4(this.TOKYO_PROJ, "EPSG:4326", [
+      coord.longitude,
+      coord.latitude,
+    ]);
     return this.normalize({ latitude: result[1], longitude: result[0] });
   }
 }
 ```
 
 **変換の特徴**:
+
 - Tokyo Datum → WGS84: 座標は北東方向に約400-500m移動
 - WGS84 → Tokyo Datum: 座標は南西方向に約400-500m移動
 - 入力欄ごとに測地系が確定しているため、推定処理は不要
@@ -690,7 +724,7 @@ class DatumTransformer {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  🗺️ ichi-link - 位置情報コンバータ                              │
+│  🗺️ ichi-link - 位置情報変換ツール                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  位置情報を入力                                                  │
@@ -738,20 +772,22 @@ class DatumTransformer {
 
 ### 入力欄の動作
 
-| 入力欄 | 測地系 | 変換処理 | 状態 |
-|--------|--------|----------|------|
-| 住所 | - | ジオコーディング→WGS84→Tokyo | 有効（Yahoo!ジオコーダAPI使用） |
-| WGS84 | WGS84 | WGS84→Tokyo変換 | 有効 |
-| Tokyo Datum | Tokyo | Tokyo→WGS84変換 | 有効 |
+| 入力欄      | 測地系 | 変換処理                     | 状態                            |
+| ----------- | ------ | ---------------------------- | ------------------------------- |
+| 住所        | -      | ジオコーディング→WGS84→Tokyo | 有効（Yahoo!ジオコーダAPI使用） |
+| WGS84       | WGS84  | WGS84→Tokyo変換              | 有効                            |
+| Tokyo Datum | Tokyo  | Tokyo→WGS84変換              | 有効                            |
 
 ### レスポンシブデザイン
 
 **ブレークポイント**:
+
 - モバイル: < 640px
 - タブレット: 640px - 1024px
 - デスクトップ: > 1024px
 
 **モバイル向け調整**:
+
 - 地図ボタンは2列×2行で配置
 - コピーボタンはアイコンのみ表示
 - 入力欄は画面幅いっぱいに拡張
@@ -775,12 +811,14 @@ class DatumTransformer {
 ### インタラクション
 
 **入力時**:
+
 1. ユーザーが入力欄にテキストを貼り付け
 2. Enterキーまたは「変換」ボタンで変換実行
 3. 変換中はローディングインジケーター表示
 4. 結果表示後、地図ボタンがアクティブになる
 
 **コピー時**:
+
 1. コピーボタンをクリック
 2. クリップボードにコピー
 3. 「コピーしました」のトースト通知を表示（2秒間）
@@ -790,14 +828,16 @@ class DatumTransformer {
 ### ローカルストレージ構造
 
 **データ保存キー**:
+
 ```typescript
 const STORAGE_KEYS = {
-  HISTORY: 'ichi-link:history',      // 変換履歴
-  SETTINGS: 'ichi-link:settings',    // ユーザー設定
+  HISTORY: "ichi-link:history", // 変換履歴
+  SETTINGS: "ichi-link:settings", // ユーザー設定
 };
 ```
 
 **履歴データ形式**:
+
 ```json
 {
   "history": [
@@ -843,13 +883,13 @@ const STORAGE_KEYS = {
 
 ### エラーの分類
 
-| エラー種別 | 処理 | ユーザーへの表示 |
-|-----------|------|-----------------|
-| 入力が空 | 処理を中断 | 「位置情報を入力してください」 |
-| 判定不能 | 結果なしで表示 | 「入力形式を判定できませんでした。座標または住所を入力してください」 |
-| 座標範囲外 | 警告付きで結果表示 | 「指定された座標は日本国外です」 |
-| コピー失敗 | エラートースト | 「コピーに失敗しました」 |
-| ストレージ満杯 | 古い履歴を削除して再試行 | （ユーザーには通知しない） |
+| エラー種別     | 処理                     | ユーザーへの表示                                                     |
+| -------------- | ------------------------ | -------------------------------------------------------------------- |
+| 入力が空       | 処理を中断               | 「位置情報を入力してください」                                       |
+| 判定不能       | 結果なしで表示           | 「入力形式を判定できませんでした。座標または住所を入力してください」 |
+| 座標範囲外     | 警告付きで結果表示       | 「指定された座標は日本国外です」                                     |
+| コピー失敗     | エラートースト           | 「コピーに失敗しました」                                             |
+| ストレージ満杯 | 古い履歴を削除して再試行 | （ユーザーには通知しない）                                           |
 
 ## テスト戦略
 
