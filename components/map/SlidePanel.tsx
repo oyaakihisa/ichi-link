@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState, useRef } from 'react';
 import { PinLocation, Coordinate, ConversionResult, Warning } from '@/lib/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { WarningDisplay } from '@/components/result/WarningDisplay';
@@ -55,6 +55,8 @@ function getInputTypeLabel(inputSource: string): string {
   }
 }
 
+const SWIPE_THRESHOLD = 100; // スワイプで閉じるための最小距離
+
 export function SlidePanel({
   pin,
   isLoadingAddress = false,
@@ -62,6 +64,14 @@ export function SlidePanel({
   isOpen,
   onClose,
 }: SlidePanelProps) {
+  // スワイプ関連のstate
+  const [swipeY, setSwipeY] = useState(0);
+  const touchStartY = useRef<number | null>(null);
+  const isDragging = useRef(false);
+
+  // 全部コピーのフィードバック用state
+  const [copyAllSuccess, setCopyAllSuccess] = useState(false);
+
   const webShareSupported = useSyncExternalStore(
     subscribeToNothing,
     getWebShareSupported,
@@ -121,11 +131,41 @@ export function SlidePanel({
     }
   }, [wgs84Coord, tokyoCoord, googleMapsUrl]);
 
-  const handleCopyAll = useCallback(() => {
+  const handleCopyAll = useCallback(async () => {
     if (!wgs84Coord || !tokyoCoord) return;
     const text = generateFullCopyText(wgs84Coord, tokyoCoord, googleMapsUrl, address);
-    navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyAllSuccess(true);
+      setTimeout(() => setCopyAllSuccess(false), 2000);
+    } catch {
+      console.error('コピーに失敗しました');
+    }
   }, [wgs84Coord, tokyoCoord, googleMapsUrl, address]);
+
+  // スワイプで閉じるためのタッチハンドラ
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+    isDragging.current = true;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging.current || touchStartY.current === null) return;
+    const deltaY = e.touches[0].clientY - touchStartY.current;
+    // 下方向のみスワイプを許可
+    if (deltaY > 0) {
+      setSwipeY(deltaY);
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (swipeY > SWIPE_THRESHOLD) {
+      onClose();
+    }
+    setSwipeY(0);
+    touchStartY.current = null;
+    isDragging.current = false;
+  }, [swipeY, onClose]);
 
   if (!wgs84Coord || !tokyoCoord) return null;
 
@@ -142,12 +182,16 @@ export function SlidePanel({
 
       {/* スライドパネル */}
       <div
-        className={`fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-lg z-50 transform transition-transform duration-300 ease-out ${
-          isOpen ? 'translate-y-0' : 'translate-y-full'
-        }`}
+        className={`fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-lg z-50 transform ${
+          swipeY > 0 ? '' : 'transition-transform duration-300 ease-out'
+        } ${isOpen ? 'translate-y-0' : 'translate-y-full'}`}
+        style={swipeY > 0 ? { transform: `translateY(${swipeY}px)` } : undefined}
         role="dialog"
         aria-modal="true"
         aria-label="位置情報詳細"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         {/* ドラッグハンドル */}
         <div className="flex justify-center pt-3 pb-2">
@@ -209,12 +253,16 @@ export function SlidePanel({
             {/* 全部コピーボタン（右端） */}
             <button
               onClick={handleCopyAll}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 text-sm font-medium rounded-lg transition-colors bg-gray-100 hover:bg-gray-200 ml-auto"
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ml-auto ${
+                copyAllSuccess
+                  ? 'bg-green-100 text-green-700 border border-green-300'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
-              全部コピー
+              {copyAllSuccess ? 'コピーしました' : '全部コピー'}
             </button>
           </div>
 
