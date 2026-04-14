@@ -72,9 +72,18 @@ export class ConversionService {
       );
 
       if (normalizedInput !== normalizedMatched) {
+        // マッチした住所以降の部分を抽出
+        const truncatedPart = this.extractTruncatedPart(
+          input,
+          result.matchedAddress
+        );
+        let message = `「${result.matchedAddress}」までの情報で位置を特定しました`;
+        if (truncatedPart) {
+          message += `\n※「${truncatedPart}」までのデータはありませんでした`;
+        }
         warnings.push({
           type: 'address_partial_match',
-          message: `「${result.matchedAddress}」までの情報で位置を特定しました`,
+          message,
           severity: 'error',
         });
       }
@@ -191,5 +200,58 @@ export class ConversionService {
       .replace(/-$/, '')
       // 空白除去
       .replace(/\s+/g, '');
+  }
+
+  /**
+   * 入力住所からマッチした住所を除いた部分（切り捨てられた部分）を抽出する
+   * @param input 入力住所
+   * @param matchedAddress マッチした住所
+   * @returns 切り捨てられた部分、または空文字列
+   */
+  private extractTruncatedPart(
+    input: string,
+    matchedAddress: string
+  ): string {
+    const trimmedInput = input.trim();
+    const trimmedMatched = matchedAddress.trim();
+
+    // 完全一致の場合は空
+    if (trimmedInput === trimmedMatched) {
+      return '';
+    }
+
+    // マッチした住所が入力の先頭にある場合、その後の部分を返す
+    if (trimmedInput.startsWith(trimmedMatched)) {
+      return trimmedInput.slice(trimmedMatched.length).trim();
+    }
+
+    // 入力がマッチした住所を含む場合、その後の部分を返す
+    const matchIndex = trimmedInput.indexOf(trimmedMatched);
+    if (matchIndex !== -1) {
+      return trimmedInput.slice(matchIndex + trimmedMatched.length).trim();
+    }
+
+    // 正規化して共通部分を探す方法
+    // 入力からビル名・階・号室などの追加情報を抽出
+    // パターン: スペース/数字の後に続く建物名等
+    const buildingPatterns = [
+      // スペース+建物名パターン
+      /[\s　]+(.+)$/,
+      // 番号の後の建物名（例: 1-1-1ABCビル）
+      /\d[-\d]*[号番]?\s*([^\d\s].+)$/,
+    ];
+
+    for (const pattern of buildingPatterns) {
+      const match = trimmedInput.match(pattern);
+      if (match && match[1]) {
+        const candidate = match[1].trim();
+        // マッチした住所に含まれていない部分のみ返す
+        if (!trimmedMatched.includes(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    return '';
   }
 }

@@ -7,7 +7,7 @@ interface WarningDisplayProps {
 const severityStyles: Record<WarningSeverity, string> = {
   info: 'bg-blue-50 border-blue-200 text-blue-800',
   warning: 'bg-yellow-50 border-yellow-200 text-yellow-800',
-  error: 'bg-red-50 border-red-200 text-red-800',
+  error: 'bg-red-50 border-red-200 text-[#ff0000]',
 };
 
 const severityIcons: Record<WarningSeverity, string> = {
@@ -31,7 +31,7 @@ export function WarningDisplay({ warnings }: WarningDisplayProps) {
           <span className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-current bg-opacity-20 text-xs font-bold">
             {severityIcons[warning.severity]}
           </span>
-          <p className="text-sm">{warning.message}</p>
+          <p className="text-sm whitespace-pre-line">{warning.message}</p>
         </div>
       ))}
     </div>
