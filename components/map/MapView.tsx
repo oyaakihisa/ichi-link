@@ -89,13 +89,18 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
   }, [pinCoordinate]);
 
   // flyTo機能（変換結果への移動）
+  // スライドパネルに隠れないよう、下部にパディングを追加してピンを画面上部に表示
   useEffect(() => {
     if (!mapRef.current || !flyToCoordinate) return;
+
+    // 画面高さの1/3を下部パディングとして設定（ピンが上から約1/3の位置に表示される）
+    const bottomPadding = window.innerHeight * 0.33;
 
     mapRef.current.flyTo({
       center: [flyToCoordinate.longitude, flyToCoordinate.latitude],
       zoom: flyToZoom,
       duration: 1500,
+      padding: { bottom: bottomPadding },
     });
   }, [flyToCoordinate, flyToZoom]);
 
