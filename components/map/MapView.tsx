@@ -7,6 +7,92 @@ import { DEFAULT_MAP_STATE, Coordinate } from '@/lib/types';
 
 const LONG_PRESS_DURATION = 500; // ms
 
+const MAP_STYLES = {
+  streets: 'mapbox://styles/mapbox/streets-v12',
+  satellite: 'mapbox://styles/mapbox/satellite-streets-v12',
+} as const;
+
+type MapStyleType = keyof typeof MAP_STYLES;
+
+// スタイル切り替えコントロール
+class StyleToggleControl implements mapboxgl.IControl {
+  private container: HTMLDivElement | null = null;
+  private button: HTMLButtonElement | null = null;
+  private map: mapboxgl.Map | null = null;
+  private currentStyle: MapStyleType;
+  private onStyleChange: (style: MapStyleType) => void;
+
+  constructor(initialStyle: MapStyleType, onStyleChange: (style: MapStyleType) => void) {
+    this.currentStyle = initialStyle;
+    this.onStyleChange = onStyleChange;
+  }
+
+  onAdd(map: mapboxgl.Map): HTMLDivElement {
+    this.map = map;
+    this.container = document.createElement('div');
+    this.container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
+
+    this.button = document.createElement('button');
+    this.button.type = 'button';
+    this.button.style.cssText = 'width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer;';
+    this.button.title = this.currentStyle === 'streets' ? '衛星画像に切り替え' : '標準地図に切り替え';
+    this.updateIcon();
+
+    this.button.addEventListener('click', () => {
+      const newStyle: MapStyleType = this.currentStyle === 'streets' ? 'satellite' : 'streets';
+      this.currentStyle = newStyle;
+      this.updateIcon();
+      this.button!.title = newStyle === 'streets' ? '衛星画像に切り替え' : '標準地図に切り替え';
+      this.map?.setStyle(MAP_STYLES[newStyle]);
+      this.onStyleChange(newStyle);
+    });
+
+    this.container.appendChild(this.button);
+    return this.container;
+  }
+
+  onRemove(): void {
+    this.container?.parentNode?.removeChild(this.container);
+    this.map = null;
+  }
+
+  private updateIcon(): void {
+    if (!this.button) return;
+    // 現在のスタイルと反対のアイコンを表示（切り替え先を示す）
+    if (this.currentStyle === 'streets') {
+      // 衛星アイコン（切り替え先が衛星）
+      this.button.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>`;
+    } else {
+      // 地図アイコン（切り替え先が標準地図）
+      this.button.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15"/><path d="M15 6v15"/></svg>`;
+    }
+  }
+}
+
+// 地図のラベルを日本語に変更する関数
+function applyJapaneseLabels(map: mapboxgl.Map): void {
+  const layers = map.getStyle()?.layers;
+  if (!layers) return;
+
+  layers.forEach((layer) => {
+    if (
+      layer.type === 'symbol' &&
+      layer.layout &&
+      'text-field' in layer.layout
+    ) {
+      const textField = layer.layout['text-field'];
+      const textFieldStr = JSON.stringify(textField);
+      if (textFieldStr.includes('name')) {
+        map.setLayoutProperty(layer.id, 'text-field', [
+          'coalesce',
+          ['get', 'name_ja'],
+          ['get', 'name'],
+        ]);
+      }
+    }
+  });
+}
+
 interface MapViewProps {
   onMapReady?: (map: mapboxgl.Map) => void;
   onLongPress?: (coordinate: Coordinate) => void;
@@ -189,14 +275,22 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
     log('new mapboxgl.Map() 直前');
     const map = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
+      style: MAP_STYLES.streets,
       center: [DEFAULT_MAP_STATE.center.longitude, DEFAULT_MAP_STATE.center.latitude],
       zoom: DEFAULT_MAP_STATE.zoom,
     });
     log('new mapboxgl.Map() 直後');
 
-    // ナビゲーションコントロールを追加
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    // ナビゲーションコントロールを追加（右下に配置、スマホで検索バーと重ならないように）
+    map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+
+    // スタイル切り替えコントロールを追加（右下、ナビゲーションの上に配置）
+    map.addControl(
+      new StyleToggleControl('streets', () => {
+        // スタイル変更はコントロール内部で処理済み
+      }),
+      'bottom-right'
+    );
 
     mapRef.current = map;
 
@@ -238,6 +332,12 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
       console.error('[MapView] Mapbox error:', e.error);
     });
 
+    // スタイル変更時にも日本語ラベルを再適用
+    map.on('style.load', () => {
+      log('style.load - 日本語ラベル適用');
+      applyJapaneseLabels(map);
+    });
+
     map.once('load', () => {
       loadTime = performance.now() - t0;
       log('load');
@@ -245,35 +345,10 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
       const labelStart = performance.now();
       log('日本語ラベル処理開始');
 
-      // 地図のラベルを日本語に変更（nameフィールドを使用しているレイヤーのみ）
-      const layers = map.getStyle().layers;
-      let modifiedLayerCount = 0;
-      if (layers) {
-        layers.forEach((layer) => {
-          if (
-            layer.type === 'symbol' &&
-            layer.layout &&
-            'text-field' in layer.layout
-          ) {
-            const textField = layer.layout['text-field'];
-            // text-fieldにnameが含まれているレイヤーのみ日本語化
-            const textFieldStr = JSON.stringify(textField);
-            if (textFieldStr.includes('name')) {
-              map.setLayoutProperty(layer.id, 'text-field', [
-                'coalesce',
-                ['get', 'name_ja'],
-                ['get', 'name'],
-              ]);
-              modifiedLayerCount++;
-            }
-          }
-        });
-      }
+      applyJapaneseLabels(map);
 
       labelProcessingTime = performance.now() - labelStart;
       log('日本語ラベル処理完了', {
-        totalLayers: layers?.length || 0,
-        modifiedLayers: modifiedLayerCount,
         processingTime: labelProcessingTime.toFixed(1) + 'ms',
       });
 
