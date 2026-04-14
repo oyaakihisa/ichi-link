@@ -1,8 +1,24 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { MapView } from "@/components/map/MapView";
+import dynamic from "next/dynamic";
 import { SlidePanel } from "@/components/map/SlidePanel";
+
+// MapView を遅延ロード（mapbox-gl を初期バンドルから分離）
+const MapView = dynamic(
+  () => import("@/components/map/MapView").then((mod) => mod.MapView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100">
+        <div className="flex flex-col items-center gap-2">
+          <div className="animate-spin h-8 w-8 border-4 border-blue-500 rounded-full border-t-transparent" />
+          <span className="text-sm text-gray-500">地図を読み込み中...</span>
+        </div>
+      </div>
+    ),
+  }
+);
 import { SearchBar } from "@/components/search/SearchBar";
 import { useConversion } from "@/components/hooks/useConversion";
 import { useMapInteraction } from "@/components/hooks/useMapInteraction";
