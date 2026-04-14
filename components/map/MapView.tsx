@@ -122,6 +122,28 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate }: MapViewProps
     map.on('touchmove', handleMove);
 
     map.on('load', () => {
+      // 地図のラベルを日本語に変更（nameフィールドを使用しているレイヤーのみ）
+      const layers = map.getStyle().layers;
+      if (layers) {
+        layers.forEach((layer) => {
+          if (
+            layer.type === 'symbol' &&
+            layer.layout &&
+            'text-field' in layer.layout
+          ) {
+            const textField = layer.layout['text-field'];
+            // text-fieldにnameが含まれているレイヤーのみ日本語化
+            const textFieldStr = JSON.stringify(textField);
+            if (textFieldStr.includes('name')) {
+              map.setLayoutProperty(layer.id, 'text-field', [
+                'coalesce',
+                ['get', 'name_ja'],
+                ['get', 'name'],
+              ]);
+            }
+          }
+        });
+      }
       onMapReady?.(map);
     });
 
