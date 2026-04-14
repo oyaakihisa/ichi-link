@@ -17,3 +17,13 @@ export type {
   MapUrls,
   ConversionResult,
 } from './result';
+
+// マップ関連
+export type {
+  PinLocation,
+  MapState,
+  MapInteractionState,
+  TabType,
+  Tab,
+} from './map';
+export { DEFAULT_MAP_STATE, TABS } from './map';
