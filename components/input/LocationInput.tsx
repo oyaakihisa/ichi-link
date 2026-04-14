@@ -32,7 +32,8 @@ function InputRow({
 }) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter' && !disabled) {
+      // IME変換中はEnterキーでの送信をスキップ
+      if (e.key === 'Enter' && !disabled && !e.nativeEvent.isComposing) {
         e.preventDefault();
         onConvert();
       }
