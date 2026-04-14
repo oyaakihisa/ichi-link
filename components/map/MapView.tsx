@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { DEFAULT_MAP_STATE, Coordinate } from '@/lib/types';
@@ -21,6 +21,7 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
   const markerRef = useRef<mapboxgl.Marker | null>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const startPosition = useRef<{ x: number; y: number } | null>(null);
+  const [isMapReady, setIsMapReady] = useState(false);
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimer.current) {
@@ -232,7 +233,12 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
     map.on('touchend', clearLongPressTimer);
     map.on('touchmove', handleMove);
 
-    map.on('load', () => {
+    // エラー時のログ出力
+    map.on('error', (e) => {
+      console.error('[MapView] Mapbox error:', e.error);
+    });
+
+    map.once('load', () => {
       loadTime = performance.now() - t0;
       log('load');
 
@@ -271,6 +277,7 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
         processingTime: labelProcessingTime.toFixed(1) + 'ms',
       });
 
+      setIsMapReady(true);
       log('onMapReady呼び出し');
       onMapReady?.(map);
     });
@@ -308,10 +315,20 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
   }, [onMapReady, handleLongPressStart, handleMove, clearLongPressTimer]);
 
   return (
-    <div
-      ref={mapContainer}
-      className="w-full h-full min-h-[400px]"
-      style={{ position: 'relative' }}
-    />
+    <div className="w-full h-full min-h-[400px] relative">
+      <div
+        ref={mapContainer}
+        className="w-full h-full"
+        style={{ position: 'absolute', inset: 0 }}
+      />
+      {!isMapReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
+          <div className="flex flex-col items-center gap-2">
+            <div className="animate-spin h-8 w-8 border-4 border-blue-500 rounded-full border-t-transparent" />
+            <span className="text-sm text-gray-500">地図を読み込み中...</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
