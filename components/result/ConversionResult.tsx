@@ -4,6 +4,7 @@ import { ConversionResult as ConversionResultType } from '@/lib/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { WarningDisplay } from './WarningDisplay';
 import { MapButtons } from './MapButtons';
+import { ShareButtons } from './ShareButtons';
 
 interface ConversionResultProps {
   result: ConversionResultType;
@@ -57,6 +58,12 @@ export function ConversionResult({ result }: ConversionResultProps) {
 
       {/* 地図ボタン */}
       <MapButtons mapUrls={result.mapUrls} />
+
+      {/* 共有ボタン */}
+      <ShareButtons
+        coordinate={result.coordinates.wgs84}
+        googleMapsUrl={result.mapUrls.googleMaps}
+      />
     </div>
   );
 }
