@@ -105,8 +105,77 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
   }, [flyToCoordinate, flyToZoom]);
 
   useEffect(() => {
-    if (!mapContainer.current) return;
-    if (mapRef.current) return; // すでに初期化済み
+    // ========== パフォーマンス計測 ==========
+    // localStorage.getItem('debug-map-perf') === '1' で有効化
+    const perfEnabled = typeof window !== 'undefined' && localStorage.getItem('debug-map-perf') === '1';
+    const t0 = performance.now();
+    let firstStyledataTime: number | null = null;
+    let firstSourcedataTime: number | null = null;
+    let firstRenderTime: number | null = null;
+    let loadTime: number | null = null;
+    let idleTime: number | null = null;
+    let labelProcessingTime: number | null = null;
+    let containerSize: { width: number; height: number } | null = null;
+
+    const log = (label: string, detail?: unknown) => {
+      if (!perfEnabled) return;
+      const elapsed = (performance.now() - t0).toFixed(0);
+      if (detail !== undefined) {
+        console.log(`[MapViewPerf] ${label}: +${elapsed}ms`, detail);
+      } else {
+        console.log(`[MapViewPerf] ${label}: +${elapsed}ms`);
+      }
+    };
+
+    log('useEffect開始');
+
+    if (!mapContainer.current) {
+      log('mapContainer.current が null');
+      return;
+    }
+    log('mapContainer存在確認OK');
+
+    if (mapRef.current) {
+      log('既に初期化済み、スキップ');
+      return;
+    }
+
+    // コンテナサイズ・可視性確認
+    containerSize = {
+      width: mapContainer.current.offsetWidth,
+      height: mapContainer.current.offsetHeight,
+    };
+    log('container.offset', containerSize);
+
+    const rect = mapContainer.current.getBoundingClientRect();
+    log('container.getBoundingClientRect', { width: rect.width, height: rect.height });
+
+    const computedStyle = window.getComputedStyle(mapContainer.current);
+    log('container.computedStyle', {
+      display: computedStyle.display,
+      visibility: computedStyle.visibility,
+    });
+
+    // 親要素のサイズ・可視性確認
+    const parent = mapContainer.current.parentElement;
+    if (parent) {
+      log('parentElement.offset', {
+        width: parent.offsetWidth,
+        height: parent.offsetHeight,
+      });
+      const parentRect = parent.getBoundingClientRect();
+      log('parentElement.getBoundingClientRect', {
+        width: parentRect.width,
+        height: parentRect.height,
+      });
+      const parentStyle = window.getComputedStyle(parent);
+      log('parentElement.computedStyle', {
+        display: parentStyle.display,
+        visibility: parentStyle.visibility,
+      });
+    } else {
+      log('parentElement が null');
+    }
 
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
     if (!token) {
@@ -116,17 +185,41 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
 
     mapboxgl.accessToken = token;
 
+    log('new mapboxgl.Map() 直前');
     const map = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/streets-v12',
       center: [DEFAULT_MAP_STATE.center.longitude, DEFAULT_MAP_STATE.center.latitude],
       zoom: DEFAULT_MAP_STATE.zoom,
     });
+    log('new mapboxgl.Map() 直後');
 
     // ナビゲーションコントロールを追加
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     mapRef.current = map;
+
+    // ========== イベントリスナー（計測用、once相当） ==========
+    map.on('styledata', () => {
+      if (firstStyledataTime === null) {
+        firstStyledataTime = performance.now() - t0;
+        log('first styledata');
+      }
+    });
+
+    map.on('sourcedata', () => {
+      if (firstSourcedataTime === null) {
+        firstSourcedataTime = performance.now() - t0;
+        log('first sourcedata');
+      }
+    });
+
+    map.on('render', () => {
+      if (firstRenderTime === null) {
+        firstRenderTime = performance.now() - t0;
+        log('first render');
+      }
+    });
 
     // 長押し検出（マウス）
     map.on('mousedown', handleLongPressStart);
@@ -140,8 +233,15 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
     map.on('touchmove', handleMove);
 
     map.on('load', () => {
+      loadTime = performance.now() - t0;
+      log('load');
+
+      const labelStart = performance.now();
+      log('日本語ラベル処理開始');
+
       // 地図のラベルを日本語に変更（nameフィールドを使用しているレイヤーのみ）
       const layers = map.getStyle().layers;
+      let modifiedLayerCount = 0;
       if (layers) {
         layers.forEach((layer) => {
           if (
@@ -158,11 +258,42 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
                 ['get', 'name_ja'],
                 ['get', 'name'],
               ]);
+              modifiedLayerCount++;
             }
           }
         });
       }
+
+      labelProcessingTime = performance.now() - labelStart;
+      log('日本語ラベル処理完了', {
+        totalLayers: layers?.length || 0,
+        modifiedLayers: modifiedLayerCount,
+        processingTime: labelProcessingTime.toFixed(1) + 'ms',
+      });
+
+      log('onMapReady呼び出し');
       onMapReady?.(map);
+    });
+
+    map.on('idle', () => {
+      if (idleTime === null) {
+        idleTime = performance.now() - t0;
+        log('idle');
+
+        // ========== 初期化サマリー ==========
+        if (perfEnabled) {
+          console.log('[MapViewPerf] ========== 初期化サマリー ==========');
+          console.log('[MapViewPerf] containerSize:', containerSize);
+          console.log('[MapViewPerf] useEffect → first styledata:', firstStyledataTime?.toFixed(0) + 'ms');
+          console.log('[MapViewPerf] useEffect → first sourcedata:', firstSourcedataTime?.toFixed(0) + 'ms');
+          console.log('[MapViewPerf] useEffect → first render:', firstRenderTime?.toFixed(0) + 'ms');
+          console.log('[MapViewPerf] useEffect → load:', loadTime?.toFixed(0) + 'ms');
+          console.log('[MapViewPerf] useEffect → idle:', idleTime.toFixed(0) + 'ms');
+          console.log('[MapViewPerf] load後処理（日本語ラベル）:', labelProcessingTime?.toFixed(1) + 'ms');
+          console.log('[MapViewPerf] geolocation待ち: なし（未使用）');
+          console.log('[MapViewPerf] =====================================');
+        }
+      }
     });
 
     // クリーンアップ
