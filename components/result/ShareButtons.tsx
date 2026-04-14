@@ -4,21 +4,25 @@ import { Coordinate } from "@/lib/types";
 import {
   generateShareText,
   generateLineShareUrl,
+  generateLineShareUrlForPC,
   isWebShareSupported,
+  isMobileDevice,
 } from "@/lib/services/ShareService";
 import { useCallback, useSyncExternalStore } from "react";
 
 interface ShareButtonsProps {
-  coordinate: Coordinate;
+  wgs84: Coordinate;
+  tokyo: Coordinate;
   googleMapsUrl: string;
 }
 
 // useSyncExternalStoreで使用するための関数
 const subscribeToNothing = () => () => {};
 const getWebShareSupported = () => isWebShareSupported();
+const getMobileDevice = () => isMobileDevice();
 const getServerSnapshot = () => false;
 
-export function ShareButtons({ coordinate, googleMapsUrl }: ShareButtonsProps) {
+export function ShareButtons({ wgs84, tokyo, googleMapsUrl }: ShareButtonsProps) {
   // useSyncExternalStoreを使ってSSRセーフにブラウザAPIをチェック
   const webShareSupported = useSyncExternalStore(
     subscribeToNothing,
@@ -26,14 +30,28 @@ export function ShareButtons({ coordinate, googleMapsUrl }: ShareButtonsProps) {
     getServerSnapshot,
   );
 
+  // LINE共有はモバイルでのみサポート
+  const isMobile = useSyncExternalStore(
+    subscribeToNothing,
+    getMobileDevice,
+    getServerSnapshot,
+  );
+
   const handleLineShare = useCallback(() => {
-    const text = generateShareText(coordinate, googleMapsUrl);
-    const url = generateLineShareUrl(text);
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, [coordinate, googleMapsUrl]);
+    const text = generateShareText(wgs84, tokyo, googleMapsUrl);
+    if (isMobile) {
+      // モバイル: テキスト+URL共有
+      const url = generateLineShareUrl(text);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      // PC: URL+テキスト共有（LINE Social Plugins）
+      const url = generateLineShareUrlForPC(googleMapsUrl, text);
+      window.open(url, "_blank", "width=600,height=500");
+    }
+  }, [wgs84, tokyo, googleMapsUrl, isMobile]);
 
   const handleWebShare = useCallback(async () => {
-    const text = generateShareText(coordinate, googleMapsUrl);
+    const text = generateShareText(wgs84, tokyo, googleMapsUrl);
     try {
       await navigator.share({
         text: text,
@@ -44,7 +62,7 @@ export function ShareButtons({ coordinate, googleMapsUrl }: ShareButtonsProps) {
         console.error("Share failed:", error);
       }
     }
-  }, [coordinate, googleMapsUrl]);
+  }, [wgs84, tokyo, googleMapsUrl]);
 
   return (
     <div className="space-y-3">

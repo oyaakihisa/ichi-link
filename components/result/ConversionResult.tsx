@@ -61,7 +61,8 @@ export function ConversionResult({ result }: ConversionResultProps) {
 
       {/* 共有ボタン */}
       <ShareButtons
-        coordinate={result.coordinates.wgs84}
+        wgs84={result.coordinates.wgs84}
+        tokyo={result.coordinates.tokyo}
         googleMapsUrl={result.mapUrls.googleMaps}
       />
     </div>

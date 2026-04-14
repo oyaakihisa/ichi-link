@@ -2,24 +2,54 @@ import { Coordinate } from '@/lib/types';
 
 /**
  * 共有用のテキストを生成する
- * @param coordinate WGS84座標
+ * @param wgs84 WGS84座標
+ * @param tokyo Tokyo Datum座標
  * @param mapUrl Google MapsのURL
  * @returns 共有用テキスト
  */
-export function generateShareText(coordinate: Coordinate, mapUrl: string): string {
-  const lat = coordinate.latitude.toFixed(6);
-  const lng = coordinate.longitude.toFixed(6);
-  return `位置情報\n座標: ${lat}, ${lng}\n地図: ${mapUrl}`;
+export function generateShareText(
+  wgs84: Coordinate,
+  tokyo: Coordinate,
+  mapUrl: string
+): string {
+  const wgs84Lat = wgs84.latitude.toFixed(6);
+  const wgs84Lng = wgs84.longitude.toFixed(6);
+  const tokyoLat = tokyo.latitude.toFixed(6);
+  const tokyoLng = tokyo.longitude.toFixed(6);
+  return `位置情報\n世界測地系(WGS84):\n${wgs84Lat}, ${wgs84Lng}\n旧日本測地系(Tokyo):\n${tokyoLat}, ${tokyoLng}\n地図: ${mapUrl}`;
 }
 
 /**
- * LINE Share用のURLを生成する
+ * LINE Share用のURLを生成する（モバイル向け）
  * @param text 共有するテキスト
  * @returns LINE Share URL
  */
 export function generateLineShareUrl(text: string): string {
   const encodedText = encodeURIComponent(text);
   return `https://line.me/R/share?text=${encodedText}`;
+}
+
+/**
+ * LINE Share用のURLを生成する（PC向け）
+ * LINE Social Pluginsを使用してURL+テキスト共有
+ * @param url 共有するURL
+ * @param text 共有するテキスト（テキストボックスにデフォルト表示される）
+ * @returns LINE Social Plugin Share URL
+ */
+export function generateLineShareUrlForPC(url: string, text: string): string {
+  return `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * モバイルデバイスかどうかを判定する
+ * LINE共有がサポートされるのはモバイルのみ
+ * @returns モバイルデバイスの場合true
+ */
+export function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 /**

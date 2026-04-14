@@ -6,25 +6,32 @@ import {
 
 describe('ShareService', () => {
   describe('generateShareText', () => {
-    it('座標とURLを含むテキストを生成する', () => {
-      const coordinate = { latitude: 35.681236, longitude: 139.767125 };
+    it('WGS84とTokyo Datum座標、URLを含むテキストを生成する', () => {
+      const wgs84 = { latitude: 35.681236, longitude: 139.767125 };
+      const tokyo = { latitude: 35.678123, longitude: 139.764012 };
       const mapUrl = 'https://www.google.com/maps?q=35.681236,139.767125';
 
-      const result = generateShareText(coordinate, mapUrl);
+      const result = generateShareText(wgs84, tokyo, mapUrl);
 
       expect(result).toContain('位置情報');
+      expect(result).toContain('世界測地系(WGS84)');
       expect(result).toContain('35.681236, 139.767125');
+      expect(result).toContain('旧日本測地系(Tokyo)');
+      expect(result).toContain('35.678123, 139.764012');
       expect(result).toContain(mapUrl);
     });
 
     it('座標を小数点以下6桁で表示する', () => {
-      const coordinate = { latitude: 35.6812361234, longitude: 139.7671254321 };
+      const wgs84 = { latitude: 35.6812361234, longitude: 139.7671254321 };
+      const tokyo = { latitude: 35.6781231234, longitude: 139.7640121234 };
       const mapUrl = 'https://example.com';
 
-      const result = generateShareText(coordinate, mapUrl);
+      const result = generateShareText(wgs84, tokyo, mapUrl);
 
       expect(result).toContain('35.681236');
       expect(result).toContain('139.767125');
+      expect(result).toContain('35.678123');
+      expect(result).toContain('139.764012');
     });
   });
 
