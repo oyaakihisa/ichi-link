@@ -79,11 +79,20 @@ components/
 │   ├── ConversionResult.tsx
 │   ├── WarningDisplay.tsx
 │   └── MapButtons.tsx
+├── map/                       # マップ関連コンポーネント
+│   ├── MapView.tsx            # Mapbox地図表示
+│   ├── POILayer.tsx           # POIレイヤー表示
+│   └── LayerToggle.tsx        # レイヤー切替UI
+├── panel/                     # パネル関連コンポーネント
+│   ├── SlidePanel.tsx         # スライドパネル
+│   └── POIDetail.tsx          # POI詳細表示
 ├── common/                    # 共通コンポーネント
 │   ├── CopyButton.tsx
 │   └── LoadingSpinner.tsx
 └── hooks/                     # カスタムフック
-    └── useConversion.ts
+    ├── useConversion.ts
+    ├── usePOI.ts              # POIデータ取得
+    └── useLayerState.ts       # レイヤー表示状態管理
 ```
 
 ### lib/ (ビジネスロジック)
@@ -121,6 +130,10 @@ lib/services/
 │   └── ValidationService.ts
 ├── generator/                 # URL生成
 │   └── MapUrlGenerator.ts
+├── poi/                       # POIデータ管理
+│   ├── POIService.ts          # POI取得・管理
+│   ├── AEDDataSource.ts       # AEDデータソース
+│   └── FireHydrantDataSource.ts  # 消火栓データソース
 └── ConversionService.ts       # ファサード（統合サービス）
 ```
 
@@ -167,6 +180,8 @@ lib/types/
 ├── input.ts                   # 入力関連の型
 ├── result.ts                  # 結果関連の型
 ├── warning.ts                 # 警告関連の型
+├── poi.ts                     # POI関連の型
+├── layer.ts                   # レイヤー関連の型
 └── index.ts                   # 型のre-export
 ```
 
@@ -495,10 +510,19 @@ ichi-link/
 │   │   ├── ConversionResult.tsx
 │   │   ├── WarningDisplay.tsx
 │   │   └── MapButtons.tsx
+│   ├── map/
+│   │   ├── MapView.tsx
+│   │   ├── POILayer.tsx
+│   │   └── LayerToggle.tsx
+│   ├── panel/
+│   │   ├── SlidePanel.tsx
+│   │   └── POIDetail.tsx
 │   ├── common/
 │   │   └── CopyButton.tsx
 │   └── hooks/
-│       └── useConversion.ts
+│       ├── useConversion.ts
+│       ├── usePOI.ts
+│       └── useLayerState.ts
 ├── lib/
 │   ├── services/
 │   │   ├── ConversionService.ts
@@ -509,8 +533,12 @@ ichi-link/
 │   │   │   └── DatumTransformer.ts
 │   │   ├── validator/
 │   │   │   └── ValidationService.ts
-│   │   └── generator/
-│   │       └── MapUrlGenerator.ts
+│   │   ├── generator/
+│   │   │   └── MapUrlGenerator.ts
+│   │   └── poi/
+│   │       ├── POIService.ts
+│   │       ├── AEDDataSource.ts
+│   │       └── FireHydrantDataSource.ts
 │   ├── storage/
 │   │   └── HistoryStorage.ts
 │   └── types/
@@ -518,14 +546,18 @@ ichi-link/
 │       ├── input.ts
 │       ├── result.ts
 │       ├── warning.ts
+│       ├── poi.ts
+│       ├── layer.ts
 │       └── index.ts
 ├── public/
 │   └── (静的アセット)
 ├── __tests__/
 │   └── unit/
 │       └── services/
-│           └── parser/
-│               └── InputParser.test.ts
+│           ├── parser/
+│           │   └── InputParser.test.ts
+│           └── poi/
+│               └── POIService.test.ts
 ├── docs/
 │   ├── product-requirements.md
 │   ├── functional-design.md

@@ -10,8 +10,8 @@ Mapbox GL JSの`map.setStyle()`を使用してスタイルを切り替える。
 
 ```typescript
 const MAP_STYLES = {
-  streets: 'mapbox://styles/mapbox/streets-v12',
-  satellite: 'mapbox://styles/mapbox/satellite-streets-v12',
+  streets: "mapbox://styles/mapbox/streets-v12",
+  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
 } as const;
 ```
 
@@ -25,14 +25,14 @@ const MAP_STYLES = {
 `setStyle()`を呼ぶとスタイルがリセットされるため、`style.load`イベントで日本語ラベル処理を再適用する必要がある。
 
 ```typescript
-map.on('style.load', () => {
+map.on("style.load", () => {
   applyJapaneseLabels(map);
 });
 ```
 
 ### UI配置
 
-- 右上に配置（ナビゲーションコントロールの下）
+- 右下に配置
 - トグルボタン形式（地図アイコン / 衛星アイコン）
 - Mapbox GL JSのカスタムコントロールとして追加
 
@@ -44,8 +44,8 @@ map.on('style.load', () => {
 
 ## 変更ファイル
 
-| ファイル | 変更内容 |
-|---------|---------|
+| ファイル                     | 変更内容                   |
+| ---------------------------- | -------------------------- |
 | `components/map/MapView.tsx` | スタイル切り替え機能の追加 |
 
 ## 技術的考慮事項

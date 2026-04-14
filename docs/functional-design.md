@@ -12,13 +12,17 @@ graph TB
     CoordinateConverter[座標変換エンジン]
     MapUrlGenerator[地図URL生成]
     MapService[マップサービス]
+    POIService[POIサービス]
     LocalStorage[(ローカルストレージ)]
+    POIDataSource[(公開データソース)]
 
     User --> UI
     UI --> InputParser
     UI --> GeocodingService
     UI --> MapService
     MapService --> ReverseGeocodingService
+    MapService --> POIService
+    POIService --> POIDataSource
     GeocodingService --> CoordinateConverter
     InputParser --> CoordinateConverter
     CoordinateConverter --> MapUrlGenerator
@@ -37,7 +41,9 @@ graph TB
             SearchBar[フローティング検索バー<br/>ドロップダウン切替]
             MapView[Mapbox地図表示]
             PinMarker[ピンマーカー]
-            SlidePanel[スライドパネル<br/>変換結果・位置情報表示]
+            POILayer[POIレイヤー<br/>AED・消火栓表示]
+            LayerToggle[レイヤー切替UI]
+            SlidePanel[スライドパネル<br/>変換結果・位置情報・POI詳細表示]
             ResultDisplay[結果表示]
             WarningDisplay[警告表示]
             MapButtons[地図ボタン群]
@@ -55,10 +61,12 @@ graph TB
         ValidationService[ValidationService<br/>検証・警告生成]
         MapUrlGenerator[MapUrlGenerator<br/>地図URL生成]
         ShareService[ShareService<br/>共有テキスト生成]
+        POIService[POIService<br/>POIデータ取得・管理]
     end
 
     subgraph DataLayer[データレイヤー]
         LocalStorage[(LocalStorage<br/>履歴保存)]
+        POIDataSource[(公開データソース<br/>AED・消火栓)]
     end
 
     User --> SearchBar
@@ -225,6 +233,13 @@ interface MapState {
   center: Coordinate;    // マップ中心座標
   zoom: number;          // ズームレベル（1-22）
   pin: PinLocation | null;  // 現在のピン位置
+  selectedPOI: POI | null;  // 選択中のPOI（アクティブピンと排他）
+  layerVisibility: LayerVisibility;  // レイヤー表示状態
+}
+
+interface LayerVisibility {
+  aed: boolean;        // AEDレイヤー表示（初期: true）
+  fireHydrant: boolean; // 消火栓レイヤー表示（初期: false）
 }
 
 // 初期値
@@ -232,7 +247,47 @@ const DEFAULT_MAP_STATE: MapState = {
   center: { latitude: 35.6812, longitude: 139.7671 }, // 東京駅
   zoom: 5, // 日本全体が見える程度
   pin: null,
+  selectedPOI: null,
+  layerVisibility: {
+    aed: true,        // AEDは初期ON
+    fireHydrant: false, // 消火栓は初期OFF
+  },
 };
+```
+
+### エンティティ: POI（公開設備）
+
+```typescript
+interface POI {
+  id: string;                    // 一意識別子
+  type: POIType;                 // POI種別
+  name: string;                  // 名称
+  coordinate: Coordinate;        // WGS84座標
+  address?: string;              // 住所
+  detailText?: string;           // 設置場所詳細などの補足情報
+  availabilityText?: string;     // 利用可能時間などの可用性情報
+  source: string;                // データソース
+  updatedAt?: Date;              // データ更新日時
+}
+
+type POIType =
+  | 'aed'           // AED
+  | 'fireHydrant'   // 消火栓
+  | 'fireCistern';  // 防火水槽（将来拡張）
+
+// AED固有の拡張情報
+interface AEDDetail {
+  availableHours?: string;     // 利用可能時間（例: "24時間"）
+  locationDetail?: string;     // 設置場所詳細（例: "1階ロビー"）
+  childPadAvailable?: boolean; // 小児対応パッド有無
+}
+
+// 消火栓固有の注記
+interface FireHydrantDetail {
+  // 利用可否は位置情報とは別概念
+  // MVPでは位置情報レイヤーとして扱い、利用可否は保証しない
+  note: string;  // 例: "利用可否は別途確認が必要です"
+}
 ```
 
 ## コンポーネント設計
@@ -477,6 +532,57 @@ class ReverseGeocodingService {
 
 - なし（fetch APIを使用）
 
+### POIService（POIデータ管理）
+
+**責務**:
+
+- POIデータの取得
+- POI表示範囲のフィルタリング
+- POIデータのキャッシュ管理
+
+**インターフェース**:
+
+```typescript
+interface POIQueryOptions {
+  bounds: MapBounds;           // 表示範囲
+  types: POIType[];            // 取得するPOI種別
+  limit?: number;              // 最大取得件数
+}
+
+interface MapBounds {
+  north: number;  // 北端緯度
+  south: number;  // 南端緯度
+  east: number;   // 東端経度
+  west: number;   // 西端経度
+}
+
+class POIService {
+  // 表示範囲内のPOIを取得
+  async getPOIs(options: POIQueryOptions): Promise<POI[]>;
+
+  // 単一POIの詳細を取得
+  async getPOIDetail(id: string): Promise<POI | null>;
+
+  // キャッシュをクリア
+  clearCache(): void;
+}
+```
+
+**データソース**:
+
+- AED: AEDオープンデータプラットフォーム等の公開API
+- 消火栓: 自治体オープンデータ等の公開API
+
+**キャッシュ戦略**:
+
+- メモリキャッシュ（セッション中のみ）
+- 表示範囲ごとにキャッシュ
+- 古いキャッシュは自動削除
+
+**依存関係**:
+
+- なし（fetch APIを使用）
+
 ### MapInteractionService（マップインタラクション）
 
 **責務**:
@@ -484,6 +590,8 @@ class ReverseGeocodingService {
 - マップの長押し検出
 - ピン位置の管理
 - スライドパネルの表示状態管理
+- **POI選択状態の管理**
+- **アクティブピンとPOI選択の排他制御**
 
 **インターフェース**:
 
@@ -720,6 +828,89 @@ sequenceDiagram
 4. 座標をTokyo Datumに変換
 5. スライドパネルに情報を表示
 6. 共有ボタンで位置情報を共有
+
+### ユースケース5: POIレイヤー表示→POIタップ→詳細確認
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant LayerUI as レイヤー切替UI
+    participant Map as Mapbox GL JS
+    participant POISvc as POIService
+    participant Panel as スライドパネル
+    participant MapGen as MapUrlGenerator
+
+    User->>LayerUI: AEDレイヤーをON
+    LayerUI->>Map: レイヤー表示状態を更新
+    Map->>POISvc: getPOIs({ types: ['aed'], bounds })
+    POISvc-->>Map: POI一覧
+    Map->>Map: AEDピンを地図上に表示
+
+    User->>Map: AEDピンをタップ
+    Map->>Map: 既存のアクティブピンをクリア<br/>（排他制御）
+    Map->>Map: タップしたPOIを選択状態に
+    Map->>POISvc: getPOIDetail(poiId)
+    POISvc-->>Map: POI詳細情報
+
+    Map->>Panel: スライドパネルを表示
+    Panel->>MapGen: generateGoogleMaps(coord)
+    MapGen-->>Panel: Google Maps URL
+    Panel-->>User: パネル表示<br/>（名称、種別、住所、座標、利用可能時間、<br/>外部地図リンク、共有ボタン）
+
+    User->>Panel: 「Google Mapsで開く」をタップ
+    Panel->>Panel: 新しいタブでGoogle Mapsを開く
+```
+
+**フロー説明**:
+
+1. ユーザーがレイヤー切替UIでAEDレイヤーをON
+2. 表示範囲内のAEDデータを取得
+3. 地図上にAEDピンを表示
+4. ユーザーがAEDピンをタップ
+5. 既存のアクティブピン（検索/長押し結果）があればクリア（排他制御）
+6. POI詳細情報を取得
+7. スライドパネルにPOI詳細を表示
+8. 外部地図や共有機能を利用
+
+**状態管理（排他制御）**:
+
+地図上の選択状態を常に1つに保つため、以下のルールを適用:
+
+| 操作 | アクティブピン | POI選択 |
+|------|--------------|---------|
+| 検索/変換実行 | 新規作成 | クリア |
+| 長押し | 新規作成 | クリア |
+| POIタップ | クリア | 選択 |
+| パネル閉じる | 維持 | 維持 |
+
+### ユースケース6: レイヤー切替
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant LayerUI as レイヤー切替UI
+    participant Map as Mapbox GL JS
+    participant POISvc as POIService
+
+    Note over LayerUI: 初期状態<br/>AED=ON, 消火栓=OFF
+
+    User->>LayerUI: 消火栓レイヤーをON
+    LayerUI->>Map: layerVisibility.fireHydrant = true
+    Map->>POISvc: getPOIs({ types: ['fireHydrant'], bounds })
+    POISvc-->>Map: 消火栓POI一覧
+    Map->>Map: 消火栓ピンを地図上に表示
+
+    User->>LayerUI: AEDレイヤーをOFF
+    LayerUI->>Map: layerVisibility.aed = false
+    Map->>Map: AEDピンを非表示
+```
+
+**フロー説明**:
+
+1. 初期状態ではAED=ON、消火栓=OFF
+2. ユーザーがレイヤー切替UIで消火栓をON
+3. 消火栓データを取得して表示
+4. ユーザーがAEDをOFFにすると非表示
 
 ## 画面遷移図
 
@@ -958,11 +1149,17 @@ class DatumTransformer {
 │    │ ○ Tokyo     │                                            │
 │    └──────────────┘                                            │
 │                                                                 │
+│  ┌──────────────┐  ← レイヤー切替UI（左上または右上）         │
+│  │ ● AED       │     ●=ON, ○=OFF                              │
+│  │ ○ 消火栓   │     初期: AED=ON, 消火栓=OFF                 │
+│  └──────────────┘                                              │
+│                                                                 │
 │                     Mapbox 地図表示                              │
 │                    （メイン画面）                                │
 │                                                                 │
-│                         📍                                      │
-│                       (ピン)                                    │
+│            🔴AED  🔴AED       📍(検索結果ピン)                 │
+│                                                                 │
+│                    🔴AED                                        │
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │  ↑ スライドパネル（変換結果または長押し後に表示）              │
@@ -1016,9 +1213,32 @@ class DatumTransformer {
 | 状態 | 表示 | トリガー |
 |------|------|----------|
 | 非表示 | パネルなし | 初期状態、パネル閉じる |
-| 読み込み中 | スケルトン表示 | 変換実行中、長押し直後 |
+| 読み込み中 | スケルトン表示 | 変換実行中、長押し直後、POI詳細取得中 |
 | 表示（変換結果） | 判定結果＋警告＋座標＋地図リンク | 変換完了後 |
 | 表示（長押し） | 住所＋座標＋共有ボタン | 長押し後の住所取得完了 |
+| 表示（POI詳細） | 名称＋種別＋住所＋座標＋詳細情報＋地図リンク＋共有 | POIタップ後 |
+
+### POI詳細パネルの表示内容
+
+**AEDの場合**:
+- 名称
+- 種別（AED）
+- 住所
+- 緯度経度（WGS84）
+- 設置場所詳細（例: 1階ロビー）
+- 利用可能時間（例: 24時間）
+- 小児対応パッド有無
+- Google Mapsリンク
+- 共有ボタン
+
+**消火栓の場合**:
+- 名称または識別情報
+- 種別（消火栓）
+- 住所または位置説明
+- 緯度経度（WGS84）
+- Google Mapsリンク
+- 共有ボタン
+- 注記: 「利用可否は別途確認が必要です」
 
 ### レスポンシブデザイン
 
@@ -1160,3 +1380,7 @@ const STORAGE_KEYS = {
 - マップからの共有機能（LINE共有、Web Share API）
 - スライドパネルの開閉動作
 - 変換結果によるマップズーム・ピン配置
+- レイヤー切替UI → AED/消火栓レイヤーのON/OFF
+- POIピンタップ → POI詳細パネル表示 → 外部地図起動
+- 検索実行時のPOI選択クリア（排他制御）
+- POIタップ時のアクティブピンクリア（排他制御）
