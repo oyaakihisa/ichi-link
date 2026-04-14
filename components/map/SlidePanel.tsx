@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, useRef } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { PinLocation, Coordinate, ConversionResult, Warning } from '@/lib/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { WarningDisplay } from '@/components/result/WarningDisplay';
@@ -55,8 +55,6 @@ function getInputTypeLabel(inputSource: string): string {
   }
 }
 
-const SWIPE_THRESHOLD = 100; // スワイプで閉じるための最小距離
-
 export function SlidePanel({
   pin,
   isLoadingAddress = false,
@@ -64,11 +62,6 @@ export function SlidePanel({
   isOpen,
   onClose,
 }: SlidePanelProps) {
-  // スワイプ関連のstate
-  const [swipeY, setSwipeY] = useState(0);
-  const touchStartY = useRef<number | null>(null);
-  const isDragging = useRef(false);
-
   // 全部コピーのフィードバック用state
   const [copyAllSuccess, setCopyAllSuccess] = useState(false);
 
@@ -143,30 +136,6 @@ export function SlidePanel({
     }
   }, [wgs84Coord, tokyoCoord, googleMapsUrl, address]);
 
-  // スワイプで閉じるためのタッチハンドラ
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
-    isDragging.current = true;
-  }, []);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDragging.current || touchStartY.current === null) return;
-    const deltaY = e.touches[0].clientY - touchStartY.current;
-    // 下方向のみスワイプを許可
-    if (deltaY > 0) {
-      setSwipeY(deltaY);
-    }
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    if (swipeY > SWIPE_THRESHOLD) {
-      onClose();
-    }
-    setSwipeY(0);
-    touchStartY.current = null;
-    isDragging.current = false;
-  }, [swipeY, onClose]);
-
   if (!wgs84Coord || !tokyoCoord) return null;
 
   return (
@@ -182,16 +151,12 @@ export function SlidePanel({
 
       {/* スライドパネル */}
       <div
-        className={`fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-lg z-50 transform ${
-          swipeY > 0 ? '' : 'transition-transform duration-300 ease-out'
-        } ${isOpen ? 'translate-y-0' : 'translate-y-full'}`}
-        style={swipeY > 0 ? { transform: `translateY(${swipeY}px)` } : undefined}
+        className={`fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-lg z-50 transform transition-transform duration-300 ease-out ${
+          isOpen ? 'translate-y-0' : 'translate-y-full'
+        }`}
         role="dialog"
         aria-modal="true"
         aria-label="位置情報詳細"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
         {/* ドラッグハンドル */}
         <div className="flex justify-center pt-3 pb-2">
