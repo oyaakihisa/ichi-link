@@ -1,22 +1,32 @@
 'use client';
 
 import { useCallback, useMemo } from 'react';
-import { PinLocation, Coordinate } from '@/lib/types';
+import { PinLocation, Coordinate, ConversionResult, Warning } from '@/lib/types';
 import { CopyButton } from '@/components/common/CopyButton';
+import { WarningDisplay } from '@/components/result/WarningDisplay';
+import { MapButtons } from '@/components/result/MapButtons';
 import {
   generateShareText,
   generateLineShareUrl,
   generateLineShareUrlForPC,
   isWebShareSupported,
   isMobileDevice,
+  generateFullCopyText,
 } from '@/lib/services/ShareService';
 import { MapUrlGenerator } from '@/lib/services/MapUrlGenerator';
 import { useSyncExternalStore } from 'react';
 
+// 表示モード: 長押しピン or 変換結果
+type PanelMode = 'pin' | 'conversion';
+
 interface SlidePanelProps {
-  pin: PinLocation;
+  // 長押しピンモード用
+  pin?: PinLocation | null;
+  isLoadingAddress?: boolean;
+  // 変換結果モード用
+  conversionResult?: ConversionResult | null;
+  // 共通
   isOpen: boolean;
-  isLoadingAddress: boolean;
   onClose: () => void;
 }
 
@@ -32,10 +42,24 @@ function formatCoordinate(coord: Coordinate): string {
   return `${coord.latitude.toFixed(6)}, ${coord.longitude.toFixed(6)}`;
 }
 
+function getInputTypeLabel(inputSource: string): string {
+  switch (inputSource) {
+    case 'address':
+      return '住所として判定';
+    case 'wgs84':
+      return 'WGS84座標として判定';
+    case 'tokyo':
+      return 'Tokyo Datum座標として判定';
+    default:
+      return '座標として判定';
+  }
+}
+
 export function SlidePanel({
   pin,
+  isLoadingAddress = false,
+  conversionResult,
   isOpen,
-  isLoadingAddress,
   onClose,
 }: SlidePanelProps) {
   const webShareSupported = useSyncExternalStore(
@@ -50,16 +74,32 @@ export function SlidePanel({
     getServerSnapshot
   );
 
-  const googleMapsUrl = useMemo(
-    () => mapUrlGenerator.generateGoogleMaps(pin.coordinate),
-    [pin.coordinate]
-  );
+  // 表示モードを判定
+  const mode: PanelMode = conversionResult ? 'conversion' : 'pin';
 
-  const wgs84Text = formatCoordinate(pin.coordinate);
-  const tokyoText = formatCoordinate(pin.tokyoCoordinate);
+  // 座標データを取得
+  const wgs84Coord = conversionResult
+    ? conversionResult.coordinates.wgs84
+    : pin?.coordinate;
+  const tokyoCoord = conversionResult
+    ? conversionResult.coordinates.tokyo
+    : pin?.tokyoCoordinate;
+  const address = conversionResult?.address || pin?.address;
+  const warnings: Warning[] = conversionResult?.warnings || [];
+  const mapUrls = conversionResult?.mapUrls;
+
+  const googleMapsUrl = useMemo(() => {
+    if (mapUrls) return mapUrls.googleMaps;
+    if (wgs84Coord) return mapUrlGenerator.generateGoogleMaps(wgs84Coord);
+    return '';
+  }, [wgs84Coord, mapUrls]);
+
+  const wgs84Text = wgs84Coord ? formatCoordinate(wgs84Coord) : '';
+  const tokyoText = tokyoCoord ? formatCoordinate(tokyoCoord) : '';
 
   const handleLineShare = useCallback(() => {
-    const text = generateShareText(pin.coordinate, pin.tokyoCoordinate, googleMapsUrl);
+    if (!wgs84Coord || !tokyoCoord) return;
+    const text = generateShareText(wgs84Coord, tokyoCoord, googleMapsUrl);
     if (isMobile) {
       const url = generateLineShareUrl(text);
       window.open(url, '_blank', 'noopener,noreferrer');
@@ -67,10 +107,11 @@ export function SlidePanel({
       const url = generateLineShareUrlForPC(googleMapsUrl, text);
       window.open(url, '_blank', 'width=600,height=500');
     }
-  }, [pin.coordinate, pin.tokyoCoordinate, googleMapsUrl, isMobile]);
+  }, [wgs84Coord, tokyoCoord, googleMapsUrl, isMobile]);
 
   const handleWebShare = useCallback(async () => {
-    const text = generateShareText(pin.coordinate, pin.tokyoCoordinate, googleMapsUrl);
+    if (!wgs84Coord || !tokyoCoord) return;
+    const text = generateShareText(wgs84Coord, tokyoCoord, googleMapsUrl);
     try {
       await navigator.share({ text });
     } catch (error) {
@@ -78,7 +119,15 @@ export function SlidePanel({
         console.error('Share failed:', error);
       }
     }
-  }, [pin.coordinate, pin.tokyoCoordinate, googleMapsUrl]);
+  }, [wgs84Coord, tokyoCoord, googleMapsUrl]);
+
+  const handleCopyAll = useCallback(() => {
+    if (!wgs84Coord || !tokyoCoord) return;
+    const text = generateFullCopyText(wgs84Coord, tokyoCoord, googleMapsUrl, address);
+    navigator.clipboard.writeText(text);
+  }, [wgs84Coord, tokyoCoord, googleMapsUrl, address]);
+
+  if (!wgs84Coord || !tokyoCoord) return null;
 
   return (
     <>
@@ -116,7 +165,23 @@ export function SlidePanel({
           </svg>
         </button>
 
-        <div className="px-4 pb-6 pt-2 max-h-[60vh] overflow-y-auto">
+        <div className="px-4 pb-6 pt-2 max-h-[70vh] overflow-y-auto">
+          {/* 変換結果モード: 判定結果表示 */}
+          {mode === 'conversion' && conversionResult && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-800">
+                {getInputTypeLabel(conversionResult.inputSource)}
+              </p>
+            </div>
+          )}
+
+          {/* 警告表示 */}
+          {warnings.length > 0 && (
+            <div className="mb-4">
+              <WarningDisplay warnings={warnings} />
+            </div>
+          )}
+
           {/* 共有ボタン */}
           <div className="flex gap-2 mb-4">
             <button
@@ -146,12 +211,12 @@ export function SlidePanel({
           <div className="mb-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500 uppercase tracking-wide">住所</span>
-              {pin.address && <CopyButton text={pin.address} />}
+              {address && <CopyButton text={address} />}
             </div>
             {isLoadingAddress ? (
               <div className="mt-1 h-5 bg-gray-200 rounded animate-pulse" />
             ) : (
-              <p className="mt-1 text-sm text-gray-900">{pin.address || '住所を取得中...'}</p>
+              <p className="mt-1 text-sm text-gray-900">{address || '住所情報なし'}</p>
             )}
           </div>
 
@@ -173,21 +238,43 @@ export function SlidePanel({
             <p className="mt-1 text-sm font-mono text-gray-900">{tokyoText}</p>
           </div>
 
-          {/* Google Maps リンク */}
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500 uppercase tracking-wide">Google Maps</span>
-              <CopyButton text={googleMapsUrl} />
-            </div>
-            <a
-              href={googleMapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 text-sm text-blue-600 hover:text-blue-800 underline break-all"
+          {/* 全部コピーボタン */}
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={handleCopyAll}
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 text-sm font-medium rounded-lg transition-colors bg-gray-100 hover:bg-gray-200"
             >
-              {googleMapsUrl}
-            </a>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              全部コピー
+            </button>
           </div>
+
+          {/* 地図ボタン（変換結果モードのみ） */}
+          {mode === 'conversion' && mapUrls && (
+            <div className="border-t border-gray-200 pt-4">
+              <MapButtons mapUrls={mapUrls} />
+            </div>
+          )}
+
+          {/* 長押しモード: Google Maps リンクのみ */}
+          {mode === 'pin' && (
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Google Maps</span>
+                <CopyButton text={googleMapsUrl} />
+              </div>
+              <a
+                href={googleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 text-sm text-blue-600 hover:text-blue-800 underline break-all"
+              >
+                {googleMapsUrl}
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </>

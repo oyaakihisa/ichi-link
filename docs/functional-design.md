@@ -33,20 +33,15 @@ graph TB
     User[ユーザー]
 
     subgraph UILayer[UIレイヤー]
-        TabNav[タブナビゲーション]
-        subgraph ConverterTab[変換ツールタブ]
-            AddressInput[住所入力欄]
-            WGS84Input[WGS84入力欄]
-            TokyoInput[Tokyo Datum入力欄]
+        subgraph MapCentricUI[マップ中心UI]
+            SearchBar[フローティング検索バー<br/>ドロップダウン切替]
+            MapView[Mapbox地図表示]
+            PinMarker[ピンマーカー]
+            SlidePanel[スライドパネル<br/>変換結果・位置情報表示]
             ResultDisplay[結果表示]
             WarningDisplay[警告表示]
             MapButtons[地図ボタン群]
             CopyButtons[コピーボタン群]
-        end
-        subgraph MapTab[マップタブ]
-            MapView[Mapbox地図表示]
-            PinMarker[ピンマーカー]
-            SlidePanel[スライドパネル]
             ShareButtons[共有ボタン群]
         end
     end
@@ -66,18 +61,17 @@ graph TB
         LocalStorage[(LocalStorage<br/>履歴保存)]
     end
 
-    User --> TabNav
-    TabNav --> ConverterTab
-    TabNav --> MapTab
-    AddressInput --> GeocodingService
-    WGS84Input --> InputParser
-    TokyoInput --> InputParser
+    User --> SearchBar
+    User --> MapView
+    SearchBar --> GeocodingService
+    SearchBar --> InputParser
     GeocodingService --> DatumTransformer
     InputParser --> CoordinateConverter
     CoordinateConverter --> DatumTransformer
     DatumTransformer --> ValidationService
-    ValidationService --> ResultDisplay
-    ValidationService --> WarningDisplay
+    ValidationService --> SlidePanel
+    SlidePanel --> ResultDisplay
+    SlidePanel --> WarningDisplay
     ResultDisplay --> MapUrlGenerator
     MapUrlGenerator --> MapButtons
     ResultDisplay --> CopyButtons
@@ -635,80 +629,127 @@ sequenceDiagram
     UI-->>User: 警告表示<br/>"緯度経度の順番を確認してください"<br/>入れ替え候補を表示
 ```
 
-### ユースケース3: マップ長押し→座標取得→共有
+### ユースケース3: 検索バーから変換→マップズーム→結果表示
 
 ```mermaid
 sequenceDiagram
     participant User as ユーザー
-    participant UI as マップUI
-    participant Map as Mapbox GL JS
-    participant ReverseGeo as ReverseGeocodingService
+    participant SearchBar as 検索バー
+    participant Parser as InputParser
+    participant Geo as GeocodingService
     participant Datum as DatumTransformer
-    participant Share as ShareService
+    participant Validator as ValidationService
+    participant MapGen as MapUrlGenerator
+    participant Map as Mapbox GL JS
+    participant Panel as スライドパネル
 
-    User->>UI: マップタブを選択
-    UI->>Map: マップを初期化
-    Map-->>UI: マップ表示完了
+    User->>SearchBar: 入力タイプを選択（住所/WGS84/Tokyo）
+    User->>SearchBar: 住所または座標を入力
+    User->>SearchBar: 「変換」ボタンをクリック
 
-    User->>Map: マップ上を長押し（500ms）
-    Map->>UI: longpress イベント<br/>(lng, lat)
-    UI->>UI: ピンを表示
+    alt 住所入力の場合
+        SearchBar->>Geo: geocode(address)
+        Geo-->>SearchBar: WGS84座標
+    else 座標入力の場合
+        SearchBar->>Parser: parse(input)
+        Parser-->>SearchBar: 座標
+    end
 
-    UI->>ReverseGeo: reverseGeocode(coord)
-    ReverseGeo-->>UI: 住所文字列
+    SearchBar->>Datum: 測地系変換
+    Datum-->>SearchBar: WGS84/Tokyo両方の座標
 
-    UI->>Datum: wgs84ToTokyo(coord)
-    Datum-->>UI: Tokyo Datum座標
+    SearchBar->>Validator: generateWarnings()
+    Validator-->>SearchBar: 警告一覧
 
-    UI->>UI: スライドパネルを表示
-    UI-->>User: パネル表示<br/>（住所、WGS84、Tokyo Datum、共有ボタン）
+    SearchBar->>MapGen: generateAll(wgs84)
+    MapGen-->>SearchBar: MapUrls
 
-    User->>UI: 「LINEで共有」ボタンをタップ
-    UI->>Share: generateShareText(wgs84, tokyo, mapUrl)
-    Share-->>UI: 共有テキスト
-    UI->>UI: LINE共有画面を開く
+    SearchBar->>Map: flyTo(座標)
+    Map->>Map: ズーム＋ピン配置
+
+    SearchBar->>Panel: 結果を表示
+    Panel-->>User: スライドパネル表示<br/>（判定結果、警告、座標、地図リンク）
 ```
 
 **フロー説明**:
 
-1. ユーザーがマップタブを選択
-2. Mapbox GL JSでマップを表示
-3. ユーザーがマップ上を長押し（約500ms）
-4. 長押し位置にピンを表示
-5. 逆ジオコーディングで住所を取得
-6. 座標をTokyo Datumに変換
-7. スライドパネルに情報を表示
-8. 共有ボタンで位置情報を共有
+1. ユーザーが検索バーで入力タイプを選択
+2. 住所または座標を入力して「変換」ボタンをクリック
+3. 入力タイプに応じてジオコーディングまたは座標パース
+4. 測地系変換を実行
+5. 警告を生成
+6. 地図URLを生成
+7. マップが該当座標にズーム、ピンを配置
+8. スライドパネルに変換結果を表示
+
+### ユースケース4: マップ長押し→座標取得→共有
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Map as Mapbox GL JS
+    participant ReverseGeo as ReverseGeocodingService
+    participant Datum as DatumTransformer
+    participant Panel as スライドパネル
+    participant Share as ShareService
+
+    User->>Map: マップ上を長押し（500ms）
+    Map->>Map: longpress イベント<br/>(lng, lat)
+    Map->>Map: ピンを表示
+
+    Map->>ReverseGeo: reverseGeocode(coord)
+    ReverseGeo-->>Map: 住所文字列
+
+    Map->>Datum: wgs84ToTokyo(coord)
+    Datum-->>Map: Tokyo Datum座標
+
+    Map->>Panel: スライドパネルを表示
+    Panel-->>User: パネル表示<br/>（住所、WGS84、Tokyo Datum、共有ボタン）
+
+    User->>Panel: 「LINEで共有」ボタンをタップ
+    Panel->>Share: generateShareText(wgs84, tokyo, mapUrl)
+    Share-->>Panel: 共有テキスト
+    Panel->>Panel: LINE共有画面を開く
+```
+
+**フロー説明**:
+
+1. ユーザーがマップ上を長押し（約500ms）
+2. 長押し位置にピンを表示
+3. 逆ジオコーディングで住所を取得
+4. 座標をTokyo Datumに変換
+5. スライドパネルに情報を表示
+6. 共有ボタンで位置情報を共有
 
 ## 画面遷移図
 
 ```mermaid
 stateDiagram-v2
-    [*] --> 変換ツールタブ
+    [*] --> マップ表示
 
-    state 変換ツールタブ {
-        [*] --> 入力待ち
-        入力待ち --> 処理中: 入力確定
-        処理中 --> 結果表示: 変換成功
-        処理中 --> エラー表示: 変換失敗
-        結果表示 --> 入力待ち: クリア
-        結果表示 --> 外部地図表示: 地図ボタンクリック
-        外部地図表示 --> 結果表示: 戻る
-        エラー表示 --> 入力待ち: 再入力
-    }
-
-    state マップタブ {
+    state マップ中心UI {
         [*] --> マップ表示
-        マップ表示 --> ピン設置: 長押し
-        ピン設置 --> パネル表示: 住所取得完了
-        パネル表示 --> マップ表示: パネル閉じる
-        パネル表示 --> 共有画面: 共有ボタン
-        共有画面 --> パネル表示: 戻る
-        パネル表示 --> ピン設置: 別の場所を長押し
-    }
 
-    変換ツールタブ --> マップタブ: タブ切り替え
-    マップタブ --> 変換ツールタブ: タブ切り替え
+        state 検索フロー {
+            マップ表示 --> 検索入力: 検索バーに入力
+            検索入力 --> 処理中: 変換ボタン
+            処理中 --> 結果パネル表示: 変換成功
+            処理中 --> エラー表示: 変換失敗
+            結果パネル表示 --> マップ表示: パネル閉じる
+            結果パネル表示 --> 外部地図表示: 地図ボタン
+            外部地図表示 --> 結果パネル表示: 戻る
+            結果パネル表示 --> 共有画面: 共有ボタン
+            共有画面 --> 結果パネル表示: 戻る
+            エラー表示 --> 検索入力: 再入力
+        }
+
+        state 長押しフロー {
+            マップ表示 --> ピン設置: 長押し
+            ピン設置 --> 位置パネル表示: 住所取得完了
+            位置パネル表示 --> マップ表示: パネル閉じる
+            位置パネル表示 --> ピン設置: 別の場所を長押し
+        }
+    }
 ```
 
 ## アルゴリズム設計
@@ -900,97 +941,36 @@ class DatumTransformer {
 
 ## UI設計
 
-### メイン画面レイアウト
+### マップ中心UIレイアウト
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  🗺️ ichi-link - 位置情報変換ツール                              │
+│  🗺️ ichi-link                                                   │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  位置情報を入力                                                  │
-│                                                                 │
-│  住所                                                           │
-│  ┌─────────────────────────────────────────────────┐ [変換]   │
-│  │ 例: 東京都千代田区丸の内1-1-1                    │          │
-│  └─────────────────────────────────────────────────┘          │
-│                                                                 │
-│  世界測地系（WGS84）                                            │
-│  ┌─────────────────────────────────────────────────┐ [変換]   │
-│  │ 例: 35.6812, 139.7671                           │          │
-│  └─────────────────────────────────────────────────┘          │
-│                                                                 │
-│  旧日本測地系（Tokyo Datum）                                    │
-│  ┌─────────────────────────────────────────────────┐ [変換]   │
-│  │ 例: 35.6812, 139.7671                           │          │
-│  └─────────────────────────────────────────────────┘          │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  📋 判定結果                                                    │
-│  └─ 入力種別: 十進度の緯度経度                                   │
-│                                                                 │
-│  ⚠️ 警告（ある場合のみ表示）                                     │
-│  └─ 緯度経度の順番を確認してください                              │
-│     → 入れ替え候補: 139.7671, 35.6812                           │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  📍 変換結果                                                    │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ WGS84        35.681200, 139.767100          [コピー]    │   │
-│  │ Tokyo Datum  35.677xxx, 139.763xxx          [コピー]    │   │
+│  │ [住所▼] 検索ボックス...                      [変換]    │   │
 │  └─────────────────────────────────────────────────────────┘   │
-│                                            [全部コピー] ボタン   │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  🗺️ 地図で開く                                                  │
-│  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐      │
-│  │ Google    │ │ Yahoo!    │ │ Apple     │ │ 地理院    │      │
-│  │ Maps      │ │ 地図      │ │ Maps      │ │ 地図      │      │
-│  └───────────┘ └───────────┘ └───────────┘ └───────────┘      │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 入力欄の動作
-
-| 入力欄      | 測地系 | 変換処理                     | 状態                            |
-| ----------- | ------ | ---------------------------- | ------------------------------- |
-| 住所        | -      | ジオコーディング→WGS84→Tokyo | 有効（Yahoo!ジオコーダAPI使用） |
-| WGS84       | WGS84  | WGS84→Tokyo変換              | 有効                            |
-| Tokyo Datum | Tokyo  | Tokyo→WGS84変換              | 有効                            |
-
-### タブナビゲーションレイアウト
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  [ 変換ツール ]  [ マップ ]                                      │
-│  ─────────────                                                   │
-│  ↑ 選択中タブにアンダーライン（青色）                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│           タブに応じたコンテンツを表示                            │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### マップタブレイアウト
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  [ 変換ツール ]  [ マップ ]                                      │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
+│  ↑ フローティング検索バー（地図上にオーバーレイ）              │
+│    ドロップダウン展開時:                                        │
+│    ┌──────────────┐                                            │
+│    │ ● 住所       │                                            │
+│    │ ○ WGS84     │                                            │
+│    │ ○ Tokyo     │                                            │
+│    └──────────────┘                                            │
 │                                                                 │
 │                     Mapbox 地図表示                              │
-│                    （フルスクリーン）                            │
+│                    （メイン画面）                                │
 │                                                                 │
 │                         📍                                      │
 │                       (ピン)                                    │
 │                                                                 │
-│                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  ↑ スライドパネル（長押し後にボトムシートとして表示）            │
+│  ↑ スライドパネル（変換結果または長押し後に表示）              │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ ━━━━━ (ドラッグハンドル)                                │   │
+│  │                                                          │   │
+│  │ 📋 判定: 住所として判定                                  │   │
+│  │ ⚠️ 警告（あれば表示）                                    │   │
 │  │                                                          │   │
 │  │ [LINEで共有] [共有]                   ← 共有ボタン群     │   │
 │  │                                                          │   │
@@ -1004,17 +984,41 @@ class DatumTransformer {
 │  │                                                          │   │
 │  │ 旧日本測地系（Tokyo Datum）                              │   │
 │  │ 35.677xxx, 139.763xxx                        [コピー]   │   │
+│  │                                                          │   │
+│  │                                       [全部コピー]       │   │
+│  │                                                          │   │
+│  │ ─────────────────────────────────────────────────────── │   │
+│  │                                                          │   │
+│  │ 🗺️ 地図で開く                                            │   │
+│  │ [Google Maps] [Yahoo!地図] [Apple Maps] [地理院地図]    │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### フローティング検索バーの動作
+
+| 入力タイプ   | 測地系 | 変換処理                     | 状態                            |
+| ----------- | ------ | ---------------------------- | ------------------------------- |
+| 住所        | -      | ジオコーディング→WGS84→Tokyo | 有効（Yahoo!ジオコーダAPI使用） |
+| WGS84       | WGS84  | WGS84→Tokyo変換              | 有効                            |
+| Tokyo Datum | Tokyo  | Tokyo→WGS84変換              | 有効                            |
+
+### 検索バーのインタラクション
+
+1. ユーザーがドロップダウンで入力タイプを選択
+2. 検索ボックスに住所または座標を入力
+3. 「変換」ボタンまたはEnterキーで変換実行
+4. **変換成功時**: 該当座標にマップがズーム＋ピン配置、スライドパネルが表示
+5. **変換失敗時**: エラーメッセージを表示
 
 ### スライドパネルの動作
 
 | 状態 | 表示 | トリガー |
 |------|------|----------|
 | 非表示 | パネルなし | 初期状態、パネル閉じる |
-| 読み込み中 | スケルトン表示 | 長押し直後、住所取得中 |
-| 表示 | 全情報表示 | 住所取得完了後 |
+| 読み込み中 | スケルトン表示 | 変換実行中、長押し直後 |
+| 表示（変換結果） | 判定結果＋警告＋座標＋地図リンク | 変換完了後 |
+| 表示（長押し） | 住所＋座標＋共有ボタン | 長押し後の住所取得完了 |
 
 ### レスポンシブデザイン
 
@@ -1148,10 +1152,11 @@ const STORAGE_KEYS = {
 
 ### E2Eテスト
 
-- 座標入力 → 変換 → 地図ボタンクリック → 地図起動
+- 検索バー入力 → 変換 → マップズーム → パネル表示 → 地図ボタンクリック
 - コピー機能の動作確認
 - レスポンシブUIの動作確認（モバイル/デスクトップ）
-- タブ切り替え（変換ツール ↔ マップ）
+- フローティング検索バーのドロップダウン切り替え
 - マップ表示 → 長押し → ピン設置 → パネル表示
 - マップからの共有機能（LINE共有、Web Share API）
 - スライドパネルの開閉動作
+- 変換結果によるマップズーム・ピン配置

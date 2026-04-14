@@ -11,9 +11,11 @@ interface MapViewProps {
   onMapReady?: (map: mapboxgl.Map) => void;
   onLongPress?: (coordinate: Coordinate) => void;
   pinCoordinate?: Coordinate | null;
+  flyToCoordinate?: Coordinate | null;
+  flyToZoom?: number;
 }
 
-export function MapView({ onMapReady, onLongPress, pinCoordinate }: MapViewProps) {
+export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinate, flyToZoom = 16 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
@@ -85,6 +87,17 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate }: MapViewProps
         .addTo(mapRef.current);
     }
   }, [pinCoordinate]);
+
+  // flyTo機能（変換結果への移動）
+  useEffect(() => {
+    if (!mapRef.current || !flyToCoordinate) return;
+
+    mapRef.current.flyTo({
+      center: [flyToCoordinate.longitude, flyToCoordinate.latitude],
+      zoom: flyToZoom,
+      duration: 1500,
+    });
+  }, [flyToCoordinate, flyToZoom]);
 
   useEffect(() => {
     if (!mapContainer.current) return;

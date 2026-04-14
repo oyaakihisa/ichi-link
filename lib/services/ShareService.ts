@@ -20,6 +20,35 @@ export function generateShareText(
 }
 
 /**
+ * 全部コピー用のテキストを生成する
+ * @param wgs84 WGS84座標
+ * @param tokyo Tokyo Datum座標
+ * @param mapUrl Google MapsのURL
+ * @param address 住所（省略可）
+ * @returns コピー用テキスト
+ */
+export function generateFullCopyText(
+  wgs84: Coordinate,
+  tokyo: Coordinate,
+  mapUrl: string,
+  address?: string
+): string {
+  const wgs84Lat = wgs84.latitude.toFixed(6);
+  const wgs84Lng = wgs84.longitude.toFixed(6);
+  const tokyoLat = tokyo.latitude.toFixed(6);
+  const tokyoLng = tokyo.longitude.toFixed(6);
+
+  let text = '位置情報\n';
+  if (address) {
+    text += `住所: ${address}\n`;
+  }
+  text += `世界測地系(WGS84): ${wgs84Lat}, ${wgs84Lng}\n`;
+  text += `旧日本測地系(Tokyo): ${tokyoLat}, ${tokyoLng}\n`;
+  text += `地図: ${mapUrl}`;
+  return text;
+}
+
+/**
  * LINE Share用のURLを生成する（モバイル向け）
  * @param text 共有するテキスト
  * @returns LINE Share URL
