@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findById } from '@/lib/server/poi/POIRepository';
+import { findById } from '@/lib/server/poi';
 
 interface RouteParams {
   params: Promise<{
@@ -18,7 +18,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams): Promi
     return NextResponse.json({ error: 'POI ID is required' }, { status: 400 });
   }
 
-  const poi = findById(id);
+  // Supabase版は非同期
+  const poi = await findById(id);
 
   if (!poi) {
     return NextResponse.json({ error: 'POI not found' }, { status: 404 });

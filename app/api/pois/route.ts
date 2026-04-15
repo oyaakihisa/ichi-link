@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findByBbox, type POIListItem } from '@/lib/server/poi/POIRepository';
+import { findByBbox, type POIListItem } from '@/lib/server/poi';
 import type { POIType, MapBounds } from '@/lib/types/poi';
 
 interface POIListResponse {
@@ -84,8 +84,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // typesパラメータの取得
   const types = parseTypes(searchParams.get('types'));
 
-  // POIを取得
-  const pois = findByBbox(bbox, types);
+  // POIを取得（Supabase版は非同期）
+  const pois = await findByBbox(bbox, types);
 
   const response: POIListResponse = {
     pois,
