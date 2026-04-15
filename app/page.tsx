@@ -61,13 +61,22 @@ export default function Home() {
     loadPOIs();
   }, []);
 
-  // flyTo座標は結果から直接導出
+  // flyTo座標は結果・POI選択・長押しピンから導出
   const flyToCoordinate = useMemo<Coordinate | null>(() => {
+    // POI選択時
+    if (selectedPoi && isPoiPanelOpen) {
+      return selectedPoi.coordinate;
+    }
+    // 長押しピン時
+    if (pin && isPanelOpen) {
+      return pin.coordinate;
+    }
+    // 変換結果時
     if (result && !isConversionPanelClosed) {
       return result.coordinates.wgs84;
     }
     return null;
-  }, [result, isConversionPanelClosed]);
+  }, [selectedPoi, isPoiPanelOpen, pin, isPanelOpen, result, isConversionPanelClosed]);
 
   // POI選択ハンドラ（排他制御: アクティブピン・変換結果をクリア）
   const handlePoiSelect = useCallback((poi: POI) => {
