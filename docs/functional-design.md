@@ -14,7 +14,9 @@ graph TB
     MapService[マップサービス]
     POIService[POIサービス]
     LocalStorage[(ローカルストレージ)]
-    POIDataSource[(公開データソース)]
+    POIAPI[自前POI API]
+    POIDB[(POIデータベース)]
+    PublicDataSource[(公開データソース)]
 
     User --> UI
     UI --> InputParser
@@ -22,7 +24,9 @@ graph TB
     UI --> MapService
     MapService --> ReverseGeocodingService
     MapService --> POIService
-    POIService --> POIDataSource
+    POIService --> POIAPI
+    POIAPI --> POIDB
+    PublicDataSource -.->|定期同期| POIDB
     GeocodingService --> CoordinateConverter
     InputParser --> CoordinateConverter
     CoordinateConverter --> MapUrlGenerator
@@ -41,7 +45,7 @@ graph TB
             SearchBar[フローティング検索バー<br/>ドロップダウン切替]
             MapView[Mapbox地図表示]
             PinMarker[ピンマーカー]
-            POILayer[POIレイヤー<br/>AED・消火栓表示]
+            POILayer[POIレイヤー<br/>AED・消火栓表示<br/>Mapbox layer/source]
             LayerToggle[レイヤー切替UI]
             SlidePanel[スライドパネル<br/>変換結果・位置情報・POI詳細表示]
             ResultDisplay[結果表示]
@@ -61,12 +65,17 @@ graph TB
         ValidationService[ValidationService<br/>検証・警告生成]
         MapUrlGenerator[MapUrlGenerator<br/>地図URL生成]
         ShareService[ShareService<br/>共有テキスト生成]
-        POIService[POIService<br/>POIデータ取得・管理]
+        POIService[POIService<br/>自前API呼び出し・キャッシュ]
+    end
+
+    subgraph APILayer[APIレイヤー]
+        POIAPI[自前POI API<br/>GET /api/pois<br/>GET /api/pois/id]
     end
 
     subgraph DataLayer[データレイヤー]
         LocalStorage[(LocalStorage<br/>履歴保存)]
-        POIDataSource[(公開データソース<br/>AED・消火栓)]
+        POIDB[(POIデータベース)]
+        PublicDataSource[(公開データソース<br/>AED・消火栓)]
     end
 
     User --> SearchBar
@@ -85,6 +94,11 @@ graph TB
     ResultDisplay --> CopyButtons
     ResultDisplay -.-> LocalStorage
     MapView --> PinMarker
+    MapView --> POILayer
+    POILayer --> POIService
+    POIService --> POIAPI
+    POIAPI --> POIDB
+    PublicDataSource -.->|定期同期| POIDB
     PinMarker --> ReverseGeocodingService
     ReverseGeocodingService --> DatumTransformer
     SlidePanel --> ShareService
@@ -536,17 +550,18 @@ class ReverseGeocodingService {
 
 **責務**:
 
-- POIデータの取得
+- 自前API経由でのPOIデータ取得
 - POI表示範囲のフィルタリング
 - POIデータのキャッシュ管理
+- Mapboxレイヤー用GeoJSONデータの生成
 
 **インターフェース**:
 
 ```typescript
 interface POIQueryOptions {
-  bounds: MapBounds;           // 表示範囲
+  bounds: MapBounds;           // 表示範囲（bbox）
   types: POIType[];            // 取得するPOI種別
-  limit?: number;              // 最大取得件数
+  zoom: number;                // 現在のズームレベル
 }
 
 interface MapBounds {
@@ -556,28 +571,61 @@ interface MapBounds {
   west: number;   // 西端経度
 }
 
+// 一覧取得レスポンス（最小限の項目）
+interface POIListItem {
+  id: string;
+  type: POIType;
+  name: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+}
+
+// 詳細取得レスポンス（追加項目を含む）
+interface POIDetail extends POIListItem {
+  detailText?: string;         // 設置場所詳細
+  availabilityText?: string;   // 利用可能時間
+  childPadAvailable?: boolean; // 小児対応（AED）
+  source: string;              // データソース
+  updatedAt?: Date;            // データ更新日時
+}
+
 class POIService {
-  // 表示範囲内のPOIを取得
-  async getPOIs(options: POIQueryOptions): Promise<POI[]>;
+  // 表示範囲内のPOIを取得（一覧）
+  // GET /api/pois?bbox=...&types=...&zoom=...
+  async getPOIs(options: POIQueryOptions): Promise<POIListItem[]>;
 
   // 単一POIの詳細を取得
-  async getPOIDetail(id: string): Promise<POI | null>;
+  // GET /api/pois/{id}
+  async getPOIDetail(id: string): Promise<POIDetail | null>;
+
+  // GeoJSON形式に変換（Mapbox描画用）
+  toGeoJSON(pois: POIListItem[]): GeoJSON.FeatureCollection;
 
   // キャッシュをクリア
   clearCache(): void;
 }
 ```
 
-**データソース**:
+**データ取得戦略**:
 
-- AED: AEDオープンデータプラットフォーム等の公開API
-- 消火栓: 自治体オープンデータ等の公開API
+- フロントエンドは公開データソースを直接叩かず、自前API（`/api/pois`）を経由
+- 一覧取得ではパネル初回表示に必要な最小限の項目のみ返却
+- 詳細情報（設置場所詳細、利用可能時間等）はPOIタップ時に`/api/pois/{id}`で補完
+- 地図移動/ズーム終了時にbbox内POIを取得（デバウンス300ms）
+
+**ズームレベル連動**:
+
+- 低ズーム（広域）: クラスタ表示、POI件数制限
+- 高ズーム（詳細）: 範囲内の全POI表示
+- 消火栓は低ズームで表示抑制
 
 **キャッシュ戦略**:
 
 - メモリキャッシュ（セッション中のみ）
-- 表示範囲ごとにキャッシュ
-- 古いキャッシュは自動削除
+- bbox + zoom + typesをキーにキャッシュ
+- 同一周辺範囲の取得結果は再利用
+- 5分経過で自動リフレッシュ
 
 **依存関係**:
 
@@ -837,22 +885,31 @@ sequenceDiagram
     participant LayerUI as レイヤー切替UI
     participant Map as Mapbox GL JS
     participant POISvc as POIService
+    participant API as 自前API
     participant Panel as スライドパネル
     participant MapGen as MapUrlGenerator
 
     User->>LayerUI: AEDレイヤーをON
     LayerUI->>Map: レイヤー表示状態を更新
-    Map->>POISvc: getPOIs({ types: ['aed'], bounds })
-    POISvc-->>Map: POI一覧
-    Map->>Map: AEDピンを地図上に表示
+    Map->>POISvc: getPOIs({ types: ['aed'], bounds, zoom })
+    POISvc->>API: GET /api/pois?bbox=...&types=aed&zoom=...
+    API-->>POISvc: POI一覧（最小限項目）
+    POISvc-->>Map: GeoJSON形式のPOIデータ
+    Map->>Map: AEDピンを地図上に表示<br/>（Mapbox layer/source）
 
     User->>Map: AEDピンをタップ
     Map->>Map: 既存のアクティブピンをクリア<br/>（排他制御）
-    Map->>Map: タップしたPOIを選択状態に
-    Map->>POISvc: getPOIDetail(poiId)
-    POISvc-->>Map: POI詳細情報
+    Map->>Map: タップしたPOIをハイライト表示
 
-    Map->>Panel: スライドパネルを表示
+    Note over Map,Panel: 一覧データで初回パネル表示
+    Map->>Panel: スライドパネルを表示<br/>（一覧データで表示可能な項目）
+
+    Note over POISvc,API: 詳細情報を非同期取得
+    Map->>POISvc: getPOIDetail(poiId)
+    POISvc->>API: GET /api/pois/{poiId}
+    API-->>POISvc: POI詳細情報
+    POISvc-->>Panel: 詳細情報で補完
+
     Panel->>MapGen: generateGoogleMaps(coord)
     MapGen-->>Panel: Google Maps URL
     Panel-->>User: パネル表示<br/>（名称、種別、住所、座標、利用可能時間、<br/>外部地図リンク、共有ボタン）
@@ -864,13 +921,17 @@ sequenceDiagram
 **フロー説明**:
 
 1. ユーザーがレイヤー切替UIでAEDレイヤーをON
-2. 表示範囲内のAEDデータを取得
-3. 地図上にAEDピンを表示
+2. 自前API経由で表示範囲内のAEDデータを取得（最小限項目）
+3. GeoJSON形式に変換し、Mapbox layer/sourceで地図上にピン表示
 4. ユーザーがAEDピンをタップ
 5. 既存のアクティブピン（検索/長押し結果）があればクリア（排他制御）
-6. POI詳細情報を取得
-7. スライドパネルにPOI詳細を表示
+6. 一覧データで初回パネル表示（即時応答）
+7. 詳細API（`GET /api/pois/{id}`）で追加情報を非同期取得・補完
 8. 外部地図や共有機能を利用
+
+**POI外部地図リンク**:
+- MVPでは簡素化のためGoogle Mapsのみ
+- 将来的に他の地図サービス（Yahoo!地図、Apple Maps等）への拡張余地は残す
 
 **状態管理（排他制御）**:
 

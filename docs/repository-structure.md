@@ -33,7 +33,7 @@ ichi-link/
 
 ### app/ (Next.js App Router)
 
-**役割**: ページとルーティングの定義
+**役割**: ページとルーティングの定義、API Routes
 
 **配置ファイル**:
 - `page.tsx`: ページコンポーネント
@@ -41,6 +41,7 @@ ichi-link/
 - `loading.tsx`: ローディングUI（オプション）
 - `error.tsx`: エラーUI（オプション）
 - `globals.css`: グローバルスタイル
+- `api/*/route.ts`: API Routes（Next.js App Router形式）
 
 **命名規則**:
 - ファイル名は固定（Next.js規約）
@@ -51,7 +52,14 @@ app/
 ├── layout.tsx                 # ルートレイアウト
 ├── page.tsx                   # メインページ（/）
 ├── globals.css                # グローバルスタイル
-└── favicon.ico                # ファビコン
+├── favicon.ico                # ファビコン
+└── api/                       # API Routes
+    ├── geocode/
+    │   └── route.ts           # Yahoo!ジオコーダAPI中継
+    └── pois/
+        ├── route.ts           # GET /api/pois（POI一覧取得）
+        └── [id]/
+            └── route.ts       # GET /api/pois/{id}（POI詳細取得）
 ```
 
 ### components/ (UIレイヤー)
@@ -130,11 +138,36 @@ lib/services/
 │   └── ValidationService.ts
 ├── generator/                 # URL生成
 │   └── MapUrlGenerator.ts
-├── poi/                       # POIデータ管理
-│   ├── POIService.ts          # POI取得・管理
-│   ├── AEDDataSource.ts       # AEDデータソース
-│   └── FireHydrantDataSource.ts  # 消火栓データソース
+├── poi/                       # POIデータ管理（フロントエンド用）
+│   └── POIService.ts          # 自前API呼び出し・キャッシュ管理
 └── ConversionService.ts       # ファサード（統合サービス）
+```
+
+#### lib/server/ (サーバーサイドロジック)
+
+**役割**: API Routes用のバックエンドロジック
+
+**配置ファイル**:
+- `*Repository.ts`: データベースアクセス
+- `*Sync.ts`: 外部データソースとの同期
+
+**依存関係**:
+- 依存可能: lib/types/, 外部ライブラリ（DB接続等）
+- 依存禁止: components/, lib/services/（クライアント用）
+
+**サブディレクトリ構造**:
+```
+lib/server/
+├── poi/
+│   ├── POIRepository.ts       # POIデータベースアクセス
+│   ├── POIQueryBuilder.ts     # bbox/zoom条件によるクエリ構築
+│   └── POISync.ts             # 公開データソースからの同期
+├── db/
+│   ├── connection.ts          # DB接続設定
+│   └── migrations/            # スキーママイグレーション
+└── sync/
+    ├── AEDDataFetcher.ts      # AEDオープンデータ取得
+    └── FireHydrantDataFetcher.ts  # 消火栓データ取得
 ```
 
 #### lib/storage/ (データレイヤー)
@@ -502,7 +535,14 @@ ichi-link/
 │   ├── layout.tsx
 │   ├── page.tsx
 │   ├── globals.css
-│   └── favicon.ico
+│   ├── favicon.ico
+│   └── api/                       # API Routes
+│       ├── geocode/
+│       │   └── route.ts           # Yahoo!ジオコーダAPI中継
+│       └── pois/
+│           ├── route.ts           # GET /api/pois（POI一覧取得）
+│           └── [id]/
+│               └── route.ts       # GET /api/pois/{id}（POI詳細取得）
 ├── components/
 │   ├── input/
 │   │   └── LocationInput.tsx
@@ -512,7 +552,7 @@ ichi-link/
 │   │   └── MapButtons.tsx
 │   ├── map/
 │   │   ├── MapView.tsx
-│   │   ├── POILayer.tsx
+│   │   ├── POILayer.tsx           # Mapbox layer/source描画
 │   │   └── LayerToggle.tsx
 │   ├── panel/
 │   │   ├── SlidePanel.tsx
@@ -521,10 +561,10 @@ ichi-link/
 │   │   └── CopyButton.tsx
 │   └── hooks/
 │       ├── useConversion.ts
-│       ├── usePOI.ts
+│       ├── usePOI.ts              # 自前API呼び出し
 │       └── useLayerState.ts
 ├── lib/
-│   ├── services/
+│   ├── services/                  # クライアントサイド
 │   │   ├── ConversionService.ts
 │   │   ├── parser/
 │   │   │   └── InputParser.ts
@@ -536,9 +576,13 @@ ichi-link/
 │   │   ├── generator/
 │   │   │   └── MapUrlGenerator.ts
 │   │   └── poi/
-│   │       ├── POIService.ts
-│   │       ├── AEDDataSource.ts
-│   │       └── FireHydrantDataSource.ts
+│   │       └── POIService.ts      # 自前API呼び出し・キャッシュ
+│   ├── server/                    # サーバーサイド
+│   │   ├── poi/
+│   │   │   ├── POIRepository.ts   # DBアクセス
+│   │   │   └── POIQueryBuilder.ts # クエリ構築
+│   │   └── db/
+│   │       └── connection.ts      # DB接続
 │   ├── storage/
 │   │   └── HistoryStorage.ts
 │   └── types/
@@ -547,6 +591,7 @@ ichi-link/
 │       ├── result.ts
 │       ├── warning.ts
 │       ├── poi.ts
+│       ├── api.ts                 # APIリクエスト/レスポンス型
 │       ├── layer.ts
 │       └── index.ts
 ├── public/
