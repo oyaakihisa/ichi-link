@@ -31,7 +31,12 @@ function createPOIGeoJSON(pois: POI[]): GeoJSON.FeatureCollection {
 }
 
 // POIレイヤーをマップに追加
-function setupPOILayers(map: mapboxgl.Map, pois: POI[], layerVisibility: LayerVisibility): void {
+function setupPOILayers(
+  map: mapboxgl.Map,
+  pois: POI[],
+  layerVisibility: LayerVisibility,
+  selectedPoiId?: string | null
+): void {
   // 既存のソースとレイヤーを削除
   if (map.getLayer(AED_LAYER_ID)) {
     map.removeLayer(AED_LAYER_ID);
@@ -42,6 +47,14 @@ function setupPOILayers(map: mapboxgl.Map, pois: POI[], layerVisibility: LayerVi
   if (map.getSource(POI_SOURCE_ID)) {
     map.removeSource(POI_SOURCE_ID);
   }
+
+  // ハイライト用のスタイル値を計算
+  const radiusValue = selectedPoiId
+    ? (['case', ['==', ['get', 'id'], selectedPoiId], 14, 10] as mapboxgl.ExpressionSpecification)
+    : 10;
+  const strokeWidthValue = selectedPoiId
+    ? (['case', ['==', ['get', 'id'], selectedPoiId], 4, 2] as mapboxgl.ExpressionSpecification)
+    : 2;
 
   // POIソースを追加
   map.addSource(POI_SOURCE_ID, {
@@ -57,8 +70,8 @@ function setupPOILayers(map: mapboxgl.Map, pois: POI[], layerVisibility: LayerVi
     filter: ['==', ['get', 'type'], 'aed'],
     paint: {
       'circle-color': '#dc2626',
-      'circle-radius': 10,
-      'circle-stroke-width': 2,
+      'circle-radius': radiusValue,
+      'circle-stroke-width': strokeWidthValue,
       'circle-stroke-color': '#ffffff',
     },
     layout: {
@@ -74,8 +87,8 @@ function setupPOILayers(map: mapboxgl.Map, pois: POI[], layerVisibility: LayerVi
     filter: ['==', ['get', 'type'], 'fireHydrant'],
     paint: {
       'circle-color': '#f59e0b',
-      'circle-radius': 10,
-      'circle-stroke-width': 2,
+      'circle-radius': radiusValue,
+      'circle-stroke-width': strokeWidthValue,
       'circle-stroke-color': '#ffffff',
     },
     layout: {
@@ -209,6 +222,7 @@ export function MapView({
   const layerVisibilityRef = useRef<LayerVisibility>(layerVisibility);
   const onLayerVisibilityChangeRef = useRef(onLayerVisibilityChange);
   const onPoiSelectRef = useRef(onPoiSelect);
+  const selectedPoiIdRef = useRef<string | null | undefined>(selectedPoiId);
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimer.current) {
@@ -234,6 +248,10 @@ export function MapView({
   useEffect(() => {
     onPoiSelectRef.current = onPoiSelect;
   }, [onPoiSelect]);
+
+  useEffect(() => {
+    selectedPoiIdRef.current = selectedPoiId;
+  }, [selectedPoiId]);
 
   const handleLongPressStart = useCallback(
     (e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
@@ -346,6 +364,33 @@ export function MapView({
       );
     }
   }, [layerVisibility, isMapReady]);
+
+  // POIハイライト表示を更新
+  useEffect(() => {
+    if (!mapRef.current || !isMapReady) return;
+    const map = mapRef.current;
+
+    // スタイルが読み込まれていない場合はスキップ
+    if (!map.isStyleLoaded()) return;
+
+    // 選択されたPOIのハイライト表示（サイズとストローク幅を変更）
+    // selectedPoiIdがある場合は条件式、ない場合は固定値
+    const radiusValue = selectedPoiId
+      ? (['case', ['==', ['get', 'id'], selectedPoiId], 14, 10] as mapboxgl.ExpressionSpecification)
+      : 10;
+    const strokeWidthValue = selectedPoiId
+      ? (['case', ['==', ['get', 'id'], selectedPoiId], 4, 2] as mapboxgl.ExpressionSpecification)
+      : 2;
+
+    if (map.getLayer(AED_LAYER_ID)) {
+      map.setPaintProperty(AED_LAYER_ID, 'circle-radius', radiusValue);
+      map.setPaintProperty(AED_LAYER_ID, 'circle-stroke-width', strokeWidthValue);
+    }
+    if (map.getLayer(FIRE_HYDRANT_LAYER_ID)) {
+      map.setPaintProperty(FIRE_HYDRANT_LAYER_ID, 'circle-radius', radiusValue);
+      map.setPaintProperty(FIRE_HYDRANT_LAYER_ID, 'circle-stroke-width', strokeWidthValue);
+    }
+  }, [selectedPoiId, isMapReady]);
 
   // POIクリックハンドラ（ref経由で最新のpoisとonPoiSelectを参照）
   const handlePOIClick = useCallback(
@@ -516,7 +561,7 @@ export function MapView({
       log('style.load - 日本語ラベル・POIレイヤー適用');
       applyJapaneseLabels(map);
       // POIレイヤーを再セットアップ（スタイル変更でレイヤーが消えるため）
-      setupPOILayers(map, poisRef.current, layerVisibilityRef.current);
+      setupPOILayers(map, poisRef.current, layerVisibilityRef.current, selectedPoiIdRef.current);
     });
 
     map.once('load', () => {
@@ -534,7 +579,7 @@ export function MapView({
       });
 
       // POIレイヤーをセットアップ
-      setupPOILayers(map, poisRef.current, layerVisibilityRef.current);
+      setupPOILayers(map, poisRef.current, layerVisibilityRef.current, selectedPoiIdRef.current);
 
       // POIクリックハンドラ（AED）
       map.on('click', AED_LAYER_ID, handlePOIClick);
