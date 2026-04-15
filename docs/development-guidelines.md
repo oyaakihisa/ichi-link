@@ -613,6 +613,302 @@ npm run format     # コードフォーマット
 }
 ```
 
+## 市町村ランディングページ開発ガイドライン
+
+### 市町村マスタデータの取り扱い
+
+**データフローの原則**:
+```
+Supabase (municipalities テーブル)
+    ↓
+MunicipalityRepository（サーバーサイド）
+    ↓
+App Router generateStaticParams / generateMetadata
+    ↓
+React Server Component
+```
+
+**RLS（Row Level Security）の意識**:
+```typescript
+// ✅ 良い例: isPublic チェックは RLS に任せる
+// Supabase RLS で isPublic = true のみ返すため、アプリ側での追加チェック不要
+const { data } = await supabase
+  .from('municipalities')
+  .select('*')
+  .eq('prefecture_slug', prefectureSlug)
+  .eq('municipality_slug', municipalitySlug)
+  .single();
+
+// データが取れなければ 404
+if (!data) {
+  notFound();
+}
+
+// ❌ 悪い例: アプリ側で isPublic をフィルタ（RLS があるため冗長）
+const { data } = await supabase
+  .from('municipalities')
+  .select('*')
+  .eq('prefecture_slug', prefectureSlug)
+  .eq('municipality_slug', municipalitySlug)
+  .eq('is_public', true)  // RLS と重複
+  .single();
+```
+
+### 静的生成とメタデータ
+
+**generateStaticParams の実装**:
+```typescript
+// app/maps/[prefectureSlug]/[municipalitySlug]/page.tsx
+export async function generateStaticParams() {
+  const municipalities = await getMunicipalityRepository().getPublicMunicipalities();
+
+  return municipalities.map((m) => ({
+    prefectureSlug: m.prefectureSlug,
+    municipalitySlug: m.municipalitySlug,
+  }));
+}
+```
+
+**generateMetadata での noindex 制御**:
+```typescript
+// ✅ 良い例: status.isIndexed に基づく robots 制御
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const municipality = await getMunicipalityRepository().getMunicipality(
+    params.prefectureSlug,
+    params.municipalitySlug
+  );
+
+  // RLSにより status.isPublic=false の市町村は null として返却される
+  if (!municipality) {
+    return {};
+  }
+
+  return {
+    title: `${municipality.municipalityNameJa} AED・消火栓マップ | ichi-link`,
+    description: municipality.seo.description,
+    // status.isIndexed に基づいて robots を制御
+    robots: municipality.status.isIndexed ? 'index,follow' : 'noindex,nofollow',
+    alternates: {
+      canonical: municipality.path,
+    },
+  };
+}
+```
+
+### 市町村コンポーネントの命名規則
+
+**ファイル命名**:
+```
+components/municipality/
+├── MunicipalityHeader.tsx       # 市町村ページのヘッダー
+├── MunicipalityInfo.tsx         # 市町村基本情報表示
+├── MunicipalityMap.tsx          # 市町村ページ用マップラッパー
+├── LayerStatusBadge.tsx         # レイヤー状態（件数・更新日）表示
+└── hooks/
+    └── useMunicipality.ts       # 市町村データ取得フック
+```
+
+**Props インターフェース命名**:
+```typescript
+// コンポーネント名 + Props
+interface MunicipalityHeaderProps {
+  municipality: Municipality;
+}
+
+interface LayerStatusBadgeProps {
+  status: MunicipalityLayerStatus;
+  layerType: POIType;
+}
+```
+
+### PostGIS 空間検索パターン
+
+**アーキテクチャ方針**:
+- 上位層（Service / Component）は bbox 検索の内部実装に依存しない
+- `POIRepository.getPOIsByBbox(bounds, types)` のような抽象インターフェースを使用
+- 実装詳細（RPC / 直接クエリ）は Repository 層で隠蔽
+
+**Repository 層での実装**:
+```typescript
+// lib/server/poi/POIRepository.ts
+class POIRepository {
+  /**
+   * bbox内のPOIを取得
+   * RPC経由で空間検索を実行（内部実装は隠蔽）
+   */
+  async getPOIsByBbox(
+    bounds: MapBounds,
+    types: POIType[],
+    options?: { zoom?: number; limit?: number }
+  ): Promise<POIListItem[]> {
+    const { data } = await this.supabase.rpc('get_pois_by_bbox', {
+      p_west: bounds.west,
+      p_south: bounds.south,
+      p_east: bounds.east,
+      p_north: bounds.north,
+      p_types: types,
+      p_limit: options?.limit ?? 1000,
+    });
+    return data ?? [];
+  }
+}
+```
+
+**Supabase RPC 関数（サーバー側）**:
+```sql
+-- geometry(Point, 4326) + GIST インデックスで高速検索
+CREATE OR REPLACE FUNCTION get_pois_by_bbox(
+  p_west DECIMAL, p_south DECIMAL, p_east DECIMAL, p_north DECIMAL,
+  p_types TEXT[],
+  p_limit INTEGER DEFAULT 1000
+) RETURNS TABLE(id VARCHAR, type VARCHAR, name VARCHAR, latitude DECIMAL, longitude DECIMAL, address VARCHAR)
+AS $$
+  SELECT id, type, name, ST_Y(location) as latitude, ST_X(location) as longitude, address
+  FROM pois
+  WHERE type = ANY(p_types)
+    AND location && ST_MakeEnvelope(p_west, p_south, p_east, p_north, 4326)
+  LIMIT p_limit;
+$$ LANGUAGE SQL STABLE;
+```
+
+**距離計算が必要な場合のみ RPC で geography を使用**:
+```typescript
+// 距離ソートが必要な場合のみ専用 RPC を呼び出す
+const { data } = await supabase.rpc('get_pois_with_distance', {
+  user_lng: longitude,
+  user_lat: latitude,
+  radius_meters: 1000,
+});
+```
+
+**注意**: Component や Service 層では直接 Supabase クエリを書かず、Repository 経由で取得すること。
+
+### サーバーサイドとクライアントサイドの分離
+
+**使い分けの原則**:
+
+| 使用場所 | 使用クラス | アクセス方法 |
+|----------|-----------|-------------|
+| Server Component / generateStaticParams / generateMetadata | `MunicipalityRepository` | Supabase 直接 |
+| API Route Handler | `MunicipalityRepository` | Supabase 直接 |
+| Client Component | `MunicipalityService` | API Route 経由 |
+
+**サーバーサイド（lib/server/）**:
+```typescript
+// lib/server/municipality/MunicipalityRepository.ts
+// Server Component / generateStaticParams / generateMetadata / Route Handler から使用
+import { createClient } from '@/lib/server/db/supabase';
+
+export class MunicipalityRepository {
+  async getMunicipality(prefectureSlug: string, municipalitySlug: string) {
+    const supabase = createClient();
+    // RLSにより status.isPublic=false の市町村は取得不可
+    const { data } = await supabase
+      .from('municipalities')
+      .select('*')
+      .eq('prefecture_slug', prefectureSlug)
+      .eq('municipality_slug', municipalitySlug)
+      .single();
+    return data;
+  }
+
+  // 静的生成用（generateStaticParams）
+  async getPublicMunicipalities() { /* ... */ }
+
+  // sitemap生成用
+  async getIndexedMunicipalities() { /* ... */ }
+}
+```
+
+**クライアントサイド（lib/services/）**:
+```typescript
+// lib/services/municipality/MunicipalityService.ts
+// Client Component からの API 呼び出し専用
+export class MunicipalityService {
+  // 市町村詳細取得（クライアントランタイムで必要な場合）
+  async getMunicipality(prefectureSlug: string, municipalitySlug: string) {
+    const response = await fetch(`/api/municipalities/${prefectureSlug}/${municipalitySlug}`);
+    if (!response.ok) return null;
+    return response.json();
+  }
+
+  // 都道府県内の市町村一覧（都道府県ページ等で使用）
+  async getMunicipalitiesByPrefecture(prefectureSlug: string) {
+    const response = await fetch(`/api/municipalities?prefecture=${prefectureSlug}`);
+    return response.json();
+  }
+}
+```
+
+**注意**:
+- `getPublicMunicipalities()` / `getIndexedMunicipalities()` は静的生成専用のため、Client Component からは呼び出さない
+- Client Component で必要なデータは必ず API Route 経由で取得
+
+### sitemap 生成
+
+**動的 sitemap の実装**:
+```typescript
+// app/sitemap.ts
+import { getMunicipalityRepository, getMunicipalityLayerStatusRepository } from '@/lib/server/municipality';
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const repo = getMunicipalityRepository();
+  const layerStatusRepo = getMunicipalityLayerStatusRepository();
+  // status.isPublic=true && status.isIndexed=true のみ
+  const municipalities = await repo.getIndexedMunicipalities();
+
+  // lastModified には該当市町村の最新 lastImportedAt を使用
+  const municipalityUrls = await Promise.all(
+    municipalities.map(async (m) => {
+      const lastImportedAt = await layerStatusRepo.getLatestImportedAt(m.jisCode);
+      return {
+        url: `https://ichi-link.jp${m.path}`,
+        lastModified: lastImportedAt ?? new Date(),
+        changeFrequency: 'weekly' as const,
+        priority: 0.8,
+      };
+    })
+  );
+
+  return [
+    { url: 'https://ichi-link.jp/', priority: 1.0 },
+    { url: 'https://ichi-link.jp/maps', priority: 0.9 },
+    ...municipalityUrls,
+  ];
+}
+```
+
+### テストパターン
+
+**市町村ページのテスト**:
+```typescript
+describe('MunicipalityPage', () => {
+  it('isPublic=false の市町村で 404 を返す', async () => {
+    // Given: isPublic=false の市町村
+    mockMunicipalityRepository.getMunicipality.mockResolvedValue(null);
+
+    // When/Then: notFound が呼ばれる
+    await expect(
+      MunicipalityPage({ params: { prefectureSlug: 'ishikawa', municipalitySlug: 'hidden-city' } })
+    ).rejects.toThrow('NEXT_NOT_FOUND');
+  });
+
+  it('status.isIndexed=false で noindex メタタグを生成する', async () => {
+    // Given
+    mockMunicipalityRepository.getMunicipality.mockResolvedValue({
+      ...baseMunicipality,
+      status: { ...baseMunicipality.status, isIndexed: false },
+    });
+
+    // When
+    const metadata = await generateMetadata({ params: { prefectureSlug: 'ishikawa', municipalitySlug: 'nanao' } });
+
+    // Then
+    expect(metadata.robots).toBe('noindex,nofollow');
+  });
+});
+```
+
 ## 自動化設定
 
 ### CI/CD（GitHub Actions）

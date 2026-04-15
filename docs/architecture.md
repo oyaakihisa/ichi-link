@@ -211,24 +211,204 @@ class HistoryStorage {
 | ユーザー設定 | LocalStorage | JSON | シンプルなキーバリュー形式で十分 |
 | POI公開データ | サーバーサイドDB | 構造化データ | 公開データの定期同期・配信に必要 |
 
-### POIデータベース
+### POIデータベース（Supabase Postgres + PostGIS）
 
 **目的**: 公開データを定期取得し、地図表示に最適化した形式で配信する
 
-**ストレージ選択肢**:
-- SQLite（軽量、ファイルベース、Vercel Blobで配置可能）
-- PostgreSQL（将来スケール時、PostGIS対応）
-- JSON/GeoJSONファイル（MVP最小構成）
+**採用技術**: Supabase Postgres + PostGIS
+
+**選定理由**:
+- PostGIS の空間インデックス機能で bbox 検索を高速化
+- Supabase のマネージドサービスにより運用負荷を削減
+- SQL ベースで柔軟なクエリが可能
+- RLS（Row Level Security）による細かいアクセス制御
+- 将来的な Vector Tiles/PMTiles 移行への基盤
+
+**スキーマ設計**:
+
+```sql
+-- PostGIS拡張を有効化
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- 市町村マスタテーブル
+CREATE TABLE municipalities (
+  jis_code VARCHAR(6) PRIMARY KEY,
+  prefecture_slug VARCHAR(50) NOT NULL,
+  municipality_slug VARCHAR(50) NOT NULL,
+  prefecture_name_ja VARCHAR(20) NOT NULL,
+  municipality_name_ja VARCHAR(50) NOT NULL,
+  center_lat DECIMAL(9,6) NOT NULL,
+  center_lng DECIMAL(9,6) NOT NULL,
+  bbox_north DECIMAL(9,6) NOT NULL,
+  bbox_south DECIMAL(9,6) NOT NULL,
+  bbox_east DECIMAL(9,6) NOT NULL,
+  bbox_west DECIMAL(9,6) NOT NULL,
+  initial_zoom INTEGER DEFAULT 12,
+  default_layers TEXT[] DEFAULT ARRAY['aed'],
+  available_layers TEXT[] DEFAULT ARRAY['aed', 'fireHydrant'],
+  seo_title VARCHAR(200),
+  seo_description TEXT,
+  is_public BOOLEAN DEFAULT false,
+  is_indexed BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (prefecture_slug, municipality_slug)
+);
+
+-- 市町村別レイヤー状態テーブル
+CREATE TABLE municipality_layer_statuses (
+  id SERIAL PRIMARY KEY,
+  municipality_jis_code VARCHAR(6) REFERENCES municipalities(jis_code),
+  layer_type VARCHAR(20) NOT NULL,
+  item_count INTEGER DEFAULT 0,
+  last_imported_at TIMESTAMP,
+  source_updated_at TIMESTAMP,
+  is_available BOOLEAN DEFAULT true,
+  UNIQUE (municipality_jis_code, layer_type)
+);
+
+-- POIテーブル（PostGIS geometry型）
+CREATE TABLE pois (
+  id VARCHAR(100) PRIMARY KEY,
+  type VARCHAR(20) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  location geometry(Point, 4326) NOT NULL,  -- WGS84座標
+  address VARCHAR(500),
+  detail_text TEXT,
+  availability_text VARCHAR(200),
+  child_pad_available BOOLEAN,
+  source VARCHAR(100),
+  source_updated_at TIMESTAMP,
+  imported_at TIMESTAMP DEFAULT NOW(),
+  municipality_jis_code VARCHAR(6) REFERENCES municipalities(jis_code)
+);
+
+-- 空間インデックス（GIST）
+CREATE INDEX idx_pois_location ON pois USING GIST(location);
+CREATE INDEX idx_pois_type ON pois(type);
+CREATE INDEX idx_pois_municipality ON pois(municipality_jis_code);
+```
+
+**空間検索クエリ**:
+
+```sql
+-- bbox検索（地図表示用、主用途）
+-- geometry型 + && 演算子 + GISTインデックスで高速検索
+SELECT id, type, name, ST_Y(location) as latitude, ST_X(location) as longitude, address
+FROM pois
+WHERE type = ANY($1::text[])
+  AND location && ST_MakeEnvelope($2, $3, $4, $5, 4326)  -- west, south, east, north
+ORDER BY id
+LIMIT $6;
+
+-- 距離計算が必要な場合のみ geography cast を使用
+SELECT id, name, ST_Distance(location::geography, ST_MakePoint($1, $2)::geography) as distance_meters
+FROM pois
+WHERE ST_DWithin(location::geography, ST_MakePoint($1, $2)::geography, $3)
+ORDER BY distance_meters;
+```
+
+**空間検索のアーキテクチャ方針**:
+
+1. **Repository層での抽象化**
+   - 上位層（Service / Component）は bbox 検索の内部実装に依存しない
+   - `POIRepository.getPOIsByBbox(bounds, types, zoom)` のようなインターフェースを提供
+   - 将来的な実装変更（RPC化、PMTiles移行等）に備える
+
+2. **実装方式の選択**
+   - 単純な bbox 検索: Supabase RPC 関数でラップ
+   - 複雑な空間クエリ（距離計算、クラスタリング）: 専用 RPC 関数を定義
+
+3. **型とインデックス**
+   - `geometry(Point, 4326)` + GIST インデックスが基本
+   - 距離計算が必要な場合のみ `::geography` にキャスト
+
+```typescript
+// lib/server/poi/POIRepository.ts
+class POIRepository {
+  /**
+   * bbox内のPOIを取得
+   * 内部実装（RPC/直接クエリ）は隠蔽
+   */
+  async getPOIsByBbox(
+    bounds: MapBounds,
+    types: POIType[],
+    options?: { zoom?: number; limit?: number }
+  ): Promise<POIListItem[]>;
+}
+```
 
 **保持項目**:
-- POI基本情報（id, type, name, lat, lng, address）
-- 詳細情報（detailText, availabilityText等）
-- メタ情報（source, sourceUpdatedAt, fetchedAt）
+- POI基本情報（id, type, name, location, address）
+- 詳細情報（detail_text, availability_text, child_pad_available等）
+- メタ情報（source, source_updated_at, imported_at, municipality_jis_code）
 
 **更新戦略**:
 - 日次〜週次で公開データソースから同期
-- 更新失敗時は前回データを維持し、fetchedAtを更新しない
+- 更新失敗時は前回データを維持し、imported_atを更新しない
 - リアルタイム更新は不要
+- `lastImportedAt`: アプリへの反映日時（ページ上で「最終更新日」として表示）
+- `sourceUpdatedAt`: 元データの更新日時（参照情報として補足表示）
+
+### Supabase権限設計
+
+**読取方針**:
+- 公開POIデータは `anon` ロールで読取可能（RLS有効、SELECT許可）
+- `municipalities` / `municipality_layer_statuses` も `anon` で読取可能
+- ただし `is_public=false` の市町村はRLSで非公開
+
+```sql
+-- RLSを有効化
+ALTER TABLE municipalities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pois ENABLE ROW LEVEL SECURITY;
+
+-- anonロールでの読取ポリシー（公開市町村のみ）
+CREATE POLICY "Public municipalities are viewable by everyone"
+ON municipalities FOR SELECT
+USING (is_public = true);
+
+-- anonロールでのPOI読取ポリシー（公開市町村に属するPOIのみ）
+CREATE POLICY "POIs in public municipalities are viewable"
+ON pois FOR SELECT
+USING (
+  municipality_jis_code IN (
+    SELECT jis_code FROM municipalities WHERE is_public = true
+  )
+);
+```
+
+**書込・更新方針**:
+- データ取り込み・更新は `service_role` / バッチ処理のみ
+- `anon` ロールには INSERT/UPDATE/DELETE 権限なし
+- 定期インポートバッチが `service_role` で実行
+
+```sql
+-- anonには読取のみ
+GRANT SELECT ON municipalities TO anon;
+GRANT SELECT ON pois TO anon;
+GRANT SELECT ON municipality_layer_statuses TO anon;
+
+-- service_roleにはCRUD全権限
+GRANT ALL ON municipalities TO service_role;
+GRANT ALL ON pois TO service_role;
+GRANT ALL ON municipality_layer_statuses TO service_role;
+```
+
+**isPublic / isIndexed の制御**:
+
+| isPublic | isIndexed | 動作 |
+|----------|-----------|------|
+| false | - | RLSで非公開、API/ページで404を返す |
+| true | false | 公開するが `noindex,nofollow` を付与 |
+| true | true | 完全公開、sitemapに含む |
+
+**必要な環境変数**（Supabase用に追加）:
+
+| 変数名 | 用途 | 公開設定 |
+|--------|------|----------|
+| SUPABASE_URL | Supabaseプロジェクト URL | サーバーサイドのみ |
+| SUPABASE_ANON_KEY | Supabase匿名キー | クライアント公開可（RLSで保護） |
+| SUPABASE_SERVICE_ROLE_KEY | Supabaseサービスロールキー | サーバーサイドのみ（バッチ処理用） |
 
 ### 容量管理
 
@@ -463,6 +643,139 @@ class POIService {
 - 履歴保存の有効/無効
 - **POIレイヤーの初期表示設定**
 - **POI表示密度の調整**
+
+## 市町村ランディングアーキテクチャ
+
+### URL設計
+
+```
+/maps                                    # 全国トップ
+/maps/[prefectureSlug]                   # 都道府県ページ
+/maps/[prefectureSlug]/[municipalitySlug] # 市町村ページ
+```
+
+### Next.js App Router設計
+
+```
+app/
+  maps/
+    page.tsx                           # /maps - 全国トップ
+    sitemap.ts                         # 動的sitemap生成
+    [prefectureSlug]/
+      page.tsx                         # /maps/[prefecture] - 都道府県ページ
+      [municipalitySlug]/
+        page.tsx                       # /maps/[prefecture]/[municipality] - 市町村ページ
+```
+
+### 静的生成戦略
+
+**generateStaticParams**:
+- `status.isPublic=true` の市町村ページを事前生成
+- ビルド時に市町村マスタから公開対象を取得
+- 新規市町村追加時は再ビルドまたはISR（Incremental Static Regeneration）で対応
+
+```typescript
+// app/maps/[prefectureSlug]/[municipalitySlug]/page.tsx
+export async function generateStaticParams() {
+  // サーバーサイドではRepositoryを直接使用
+  const municipalities = await getMunicipalityRepository().getPublicMunicipalities();
+  return municipalities.map((m) => ({
+    prefectureSlug: m.prefectureSlug,
+    municipalitySlug: m.municipalitySlug,
+  }));
+}
+```
+
+**sitemap生成**:
+- `status.isPublic=true && status.isIndexed=true` のページのみsitemapに含める
+- `app/sitemap.ts` で動的生成
+- `lastModified` には該当市町村の最新 `lastImportedAt` を使用
+
+```typescript
+// app/sitemap.ts
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const repo = getMunicipalityRepository();
+  const layerStatusRepo = getMunicipalityLayerStatusRepository();
+  const municipalities = await repo.getIndexedMunicipalities();
+
+  const entries = await Promise.all(
+    municipalities.map(async (m) => {
+      // 該当市町村の最新インポート日時を取得
+      const lastImportedAt = await layerStatusRepo.getLatestImportedAt(m.jisCode);
+      return {
+        url: `https://example.com${m.path}`,
+        lastModified: lastImportedAt ?? new Date(),
+        changeFrequency: 'weekly' as const,
+        priority: 0.8,
+      };
+    })
+  );
+
+  return entries;
+}
+```
+
+### メタデータ動的生成
+
+```typescript
+// app/maps/[prefectureSlug]/[municipalitySlug]/page.tsx
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  // サーバーサイドではRepositoryを直接使用
+  const municipality = await getMunicipalityRepository().getMunicipality(
+    params.prefectureSlug,
+    params.municipalitySlug
+  );
+
+  // RLSにより status.isPublic=false の市町村は null として返却される
+  if (!municipality) {
+    return {};
+  }
+
+  return {
+    title: municipality.seo.title,
+    description: municipality.seo.description,
+    // status.isIndexed に基づいて robots を制御
+    robots: municipality.status.isIndexed ? 'index,follow' : 'noindex,nofollow',
+    alternates: {
+      canonical: municipality.seo.canonicalPath,
+    },
+    openGraph: {
+      title: municipality.seo.title,
+      description: municipality.seo.description,
+      url: municipality.path,
+    },
+  };
+}
+```
+
+### 市町村ページ初期化フロー
+
+```
+1. URLから市町村slugを取得
+2. 市町村マスタから設定を取得
+3. isPublic確認 → false なら 404
+4. SEOメタデータ設定（isIndexed=false → noindex）
+5. 地図をbbox/center/initialZoomで初期表示
+6. defaultLayersでPOI初回取得
+7. ページコンテンツ表示
+```
+
+### データフロー（市町村ページ）
+
+```
+[市町村マスタ]          [MunicipalityLayerStatus]         [POI API]
+      │                         │                            │
+      │ generateMetadata()      │                            │
+      │ ────────────────▶      │                            │
+      │                         │                            │
+      │ generateStaticParams()  │                            │
+      │ ────────────────▶      │                            │
+      │                         │                            │
+      │ 市町村設定               │ 動的情報（件数、更新日）    │ bbox POI
+      │ ────────────────▶      │ ────────────────▶         │ ────▶
+      │                         │                            │
+[ページレンダリング]          [ページコンテンツ]            [地図表示]
+```
 
 ## テスト戦略
 

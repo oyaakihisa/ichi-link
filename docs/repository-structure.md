@@ -53,13 +53,24 @@ app/
 ├── page.tsx                   # メインページ（/）
 ├── globals.css                # グローバルスタイル
 ├── favicon.ico                # ファビコン
+├── sitemap.ts                 # 動的sitemap生成
+├── maps/                      # 市町村ランディングページ
+│   ├── page.tsx               # /maps（全国トップ）
+│   └── [prefectureSlug]/
+│       ├── page.tsx           # /maps/[prefecture]（都道府県ページ）
+│       └── [municipalitySlug]/
+│           └── page.tsx       # /maps/[prefecture]/[municipality]（市町村ページ）
 └── api/                       # API Routes
     ├── geocode/
     │   └── route.ts           # Yahoo!ジオコーダAPI中継
-    └── pois/
-        ├── route.ts           # GET /api/pois（POI一覧取得）
-        └── [id]/
-            └── route.ts       # GET /api/pois/{id}（POI詳細取得）
+    ├── pois/
+    │   ├── route.ts           # GET /api/pois（POI一覧取得）
+    │   └── [id]/
+    │       └── route.ts       # GET /api/pois/{id}（POI詳細取得）
+    └── municipalities/
+        └── [prefectureSlug]/
+            └── [municipalitySlug]/
+                └── route.ts   # GET /api/municipalities/{prefecture}/{municipality}
 ```
 
 ### components/ (UIレイヤー)
@@ -97,10 +108,16 @@ components/
 ├── common/                    # 共通コンポーネント
 │   ├── CopyButton.tsx
 │   └── LoadingSpinner.tsx
+├── municipality/              # 市町村ランディング関連
+│   ├── MunicipalityHeader.tsx # 市町村ページヘッダー
+│   ├── MunicipalityInfo.tsx   # 市町村情報表示
+│   ├── LayerStatusBadge.tsx   # レイヤー状態バッジ
+│   └── MunicipalityMap.tsx    # 市町村ページ用マップラッパー
 └── hooks/                     # カスタムフック
     ├── useConversion.ts
     ├── usePOI.ts              # POIデータ取得
-    └── useLayerState.ts       # レイヤー表示状態管理
+    ├── useLayerState.ts       # レイヤー表示状態管理
+    └── useMunicipality.ts     # 市町村データ取得
 ```
 
 ### lib/ (ビジネスロジック)
@@ -140,6 +157,8 @@ lib/services/
 │   └── MapUrlGenerator.ts
 ├── poi/                       # POIデータ管理（フロントエンド用）
 │   └── POIService.ts          # 自前API呼び出し・キャッシュ管理
+├── municipality/              # 市町村データ管理（クライアント用）
+│   └── MunicipalityService.ts # API経由での市町村データ取得
 └── ConversionService.ts       # ファサード（統合サービス）
 ```
 
@@ -165,9 +184,13 @@ lib/server/
 ├── db/
 │   ├── connection.ts          # DB接続設定
 │   └── migrations/            # スキーママイグレーション
-└── sync/
-    ├── AEDDataFetcher.ts      # AEDオープンデータ取得
-    └── FireHydrantDataFetcher.ts  # 消火栓データ取得
+├── sync/
+│   ├── AEDDataFetcher.ts      # AEDオープンデータ取得
+│   └── FireHydrantDataFetcher.ts  # 消火栓データ取得
+└── municipality/
+    ├── MunicipalityRepository.ts   # 市町村マスタDBアクセス
+    ├── MunicipalityLayerStatusRepository.ts  # レイヤー状態DBアクセス
+    └── types.ts               # サーバーサイド市町村関連型定義
 ```
 
 #### lib/storage/ (データレイヤー)
@@ -536,13 +559,24 @@ ichi-link/
 │   ├── page.tsx
 │   ├── globals.css
 │   ├── favicon.ico
+│   ├── sitemap.ts                 # 動的sitemap生成
+│   ├── maps/                      # 市町村ランディングページ
+│   │   ├── page.tsx               # /maps（全国トップ）
+│   │   └── [prefectureSlug]/
+│   │       ├── page.tsx           # /maps/[prefecture]（都道府県ページ）
+│   │       └── [municipalitySlug]/
+│   │           └── page.tsx       # /maps/[prefecture]/[municipality]
 │   └── api/                       # API Routes
 │       ├── geocode/
 │       │   └── route.ts           # Yahoo!ジオコーダAPI中継
-│       └── pois/
-│           ├── route.ts           # GET /api/pois（POI一覧取得）
-│           └── [id]/
-│               └── route.ts       # GET /api/pois/{id}（POI詳細取得）
+│       ├── pois/
+│       │   ├── route.ts           # GET /api/pois（POI一覧取得）
+│       │   └── [id]/
+│       │       └── route.ts       # GET /api/pois/{id}（POI詳細取得）
+│       └── municipalities/
+│           └── [prefectureSlug]/
+│               └── [municipalitySlug]/
+│                   └── route.ts   # GET /api/municipalities/{prefecture}/{municipality}
 ├── components/
 │   ├── input/
 │   │   └── LocationInput.tsx
@@ -559,10 +593,16 @@ ichi-link/
 │   │   └── POIDetail.tsx
 │   ├── common/
 │   │   └── CopyButton.tsx
+│   ├── municipality/
+│   │   ├── MunicipalityHeader.tsx # 市町村ページヘッダー
+│   │   ├── MunicipalityInfo.tsx   # 市町村情報表示
+│   │   ├── LayerStatusBadge.tsx   # レイヤー状態バッジ
+│   │   └── MunicipalityMap.tsx    # 市町村ページ用マップラッパー
 │   └── hooks/
 │       ├── useConversion.ts
 │       ├── usePOI.ts              # 自前API呼び出し
-│       └── useLayerState.ts
+│       ├── useLayerState.ts
+│       └── useMunicipality.ts     # 市町村データ取得
 ├── lib/
 │   ├── services/                  # クライアントサイド
 │   │   ├── ConversionService.ts
@@ -575,12 +615,18 @@ ichi-link/
 │   │   │   └── ValidationService.ts
 │   │   ├── generator/
 │   │   │   └── MapUrlGenerator.ts
-│   │   └── poi/
-│   │       └── POIService.ts      # 自前API呼び出し・キャッシュ
+│   │   ├── poi/
+│   │   │   └── POIService.ts      # 自前API呼び出し・キャッシュ
+│   │   └── municipality/
+│   │       └── MunicipalityService.ts  # API経由での市町村データ取得
 │   ├── server/                    # サーバーサイド
 │   │   ├── poi/
 │   │   │   ├── POIRepository.ts   # DBアクセス
 │   │   │   └── POIQueryBuilder.ts # クエリ構築
+│   │   ├── municipality/
+│   │   │   ├── MunicipalityRepository.ts      # 市町村マスタDBアクセス
+│   │   │   ├── MunicipalityLayerStatusRepository.ts  # レイヤー状態DBアクセス
+│   │   │   └── types.ts           # サーバーサイド市町村関連型
 │   │   └── db/
 │   │       └── connection.ts      # DB接続
 │   ├── storage/
@@ -593,6 +639,7 @@ ichi-link/
 │       ├── poi.ts
 │       ├── api.ts                 # APIリクエスト/レスポンス型
 │       ├── layer.ts
+│       ├── municipality.ts        # 市町村マスタ・レイヤー状態型
 │       └── index.ts
 ├── public/
 │   └── (静的アセット)

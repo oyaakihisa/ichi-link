@@ -304,6 +304,175 @@ interface FireHydrantDetail {
 }
 ```
 
+### エンティティ: Prefecture（都道府県）
+
+```typescript
+/**
+ * 都道府県マスタ
+ */
+interface Prefecture {
+  /** 都道府県コード（JIS X 0401） */
+  code: string;
+  /** スラッグ（例: "ishikawa"） */
+  slug: string;
+  /** 都道府県名（例: "石川県"） */
+  nameJa: string;
+  /** 正規パス（例: "/maps/ishikawa"） */
+  path: string;
+  /** 地図設定 */
+  map: {
+    center: Coordinate;
+    bbox: MapBounds;
+    initialZoom: number;
+  };
+}
+```
+
+### エンティティ: Municipality（市町村マスタ）
+
+```typescript
+/**
+ * 市町村マスタ
+ * ルーティング・SEO・初期地図状態・初回POI取得の基準を集約
+ */
+interface Municipality {
+  /** 全国地方公共団体コード（例: "172022"） */
+  jisCode: string;
+  /** 都道府県スラッグ（例: "ishikawa"） */
+  prefectureSlug: string;
+  /** 市町村スラッグ（例: "wajima"） */
+  municipalitySlug: string;
+  /** 都道府県名（例: "石川県"） */
+  prefectureNameJa: string;
+  /** 市町村名（例: "輪島市"） */
+  municipalityNameJa: string;
+  /** 正規パス（例: "/maps/ishikawa/wajima"） */
+  path: string;
+  /** 地図設定 */
+  map: MunicipalityMapConfig;
+  /** レイヤー設定 */
+  layers: MunicipalityLayerConfig;
+  /** SEO設定 */
+  seo: MunicipalitySeoConfig;
+  /** コンテンツ設定 */
+  content: MunicipalityContentConfig;
+  /** 公開設定 */
+  status: MunicipalityStatus;
+}
+
+/**
+ * 市町村地図設定
+ */
+interface MunicipalityMapConfig {
+  /** 初期中心座標 */
+  center: Coordinate;
+  /** 市町村範囲 */
+  bbox: MapBounds;
+  /** 初期ズームレベル */
+  initialZoom: number;
+}
+
+/**
+ * 市町村レイヤー設定
+ */
+interface MunicipalityLayerConfig {
+  /** 初期有効レイヤー（例: ['aed']） */
+  defaultLayers: POIType[];
+  /** この市町村で利用可能なレイヤー種別 */
+  availableLayers: POIType[];
+  /** レイヤー種別ごとの最小表示ズームレベル */
+  minZoomByLayer: Partial<Record<POIType, number>>;
+}
+
+/**
+ * 市町村SEO設定
+ */
+interface MunicipalitySeoConfig {
+  /** ページタイトル */
+  title: string;
+  /** ページ説明文 */
+  description: string;
+  /** ページ見出し（h1） */
+  h1: string;
+  /** canonical URL パス */
+  canonicalPath: string;
+}
+
+/**
+ * 市町村コンテンツ設定
+ */
+interface MunicipalityContentConfig {
+  /** ページ導入文 */
+  introText?: string;
+  /** 注意事項テキスト */
+  cautionText?: string;
+  /** データソース参照情報 */
+  sourceRefs: SourceReference[];
+}
+
+/**
+ * データソース参照情報
+ */
+interface SourceReference {
+  /** ソース名 */
+  name: string;
+  /** ソースURL */
+  url?: string;
+  /** レイヤー種別 */
+  layerType: POIType;
+}
+
+/**
+ * 市町村公開設定
+ */
+interface MunicipalityStatus {
+  /** ページ公開状態（false = 非公開、404を返す） */
+  isPublic: boolean;
+  /** 検索エンジンインデックス対象（false = noindex を付与） */
+  isIndexed: boolean;
+}
+```
+
+### エンティティ: MunicipalityLayerStatus（市町村別レイヤー状態）
+
+```typescript
+/**
+ * 市町村別レイヤー状態（動的情報）
+ * 更新日時や件数などの変動する情報を管理
+ */
+interface MunicipalityLayerStatus {
+  /** 市町村コード */
+  municipalityJisCode: string;
+  /** レイヤー種別 */
+  layerType: POIType;
+  /** POI件数 */
+  itemCount: number;
+  /**
+   * 最終インポート日時
+   * - 自前DBへの反映日時
+   * - ページ上で「最終更新日」として表示
+   * - sitemap の lastModified に使用
+   */
+  lastImportedAt: Date;
+  /**
+   * ソース側更新日時（オプション）
+   * - 元データ（公開データソース）の更新日時
+   * - 参照情報として補足表示
+   * - ソースが日時を提供しない場合は null
+   */
+  sourceUpdatedAt?: Date;
+  /** 利用可能状態 */
+  isAvailable: boolean;
+}
+```
+
+**更新日時の使い分け**:
+
+| 項目 | 用途 | 参照元 |
+|------|------|--------|
+| `lastImportedAt` | ページ上の「最終更新日」、sitemap の lastModified | `municipality_layer_statuses.last_imported_at` |
+| `sourceUpdatedAt` | データソース参照情報（補足表示） | `municipality_layer_statuses.source_updated_at` |
+
 ## コンポーネント設計
 
 ### InputParser（入力パーサー）
@@ -669,6 +838,137 @@ function useMapInteraction(): {
 - ReverseGeocodingService
 - DatumTransformer
 
+### MunicipalityRepository（市町村リポジトリ / サーバーサイド）
+
+**責務**:
+
+- Supabase経由での市町村マスタ取得
+- 都道府県・市町村slugの検証
+- Server Component / generateStaticParams / generateMetadata からの利用
+
+**インターフェース**:
+
+```typescript
+// lib/server/municipality/MunicipalityRepository.ts
+class MunicipalityRepository {
+  /**
+   * スラッグから市町村を取得
+   * RLSにより isPublic=false の市町村は取得不可
+   */
+  async getMunicipality(
+    prefectureSlug: string,
+    municipalitySlug: string
+  ): Promise<Municipality | null>;
+
+  /**
+   * 都道府県を取得
+   */
+  async getPrefecture(prefectureSlug: string): Promise<Prefecture | null>;
+
+  /**
+   * 都道府県内の市町村一覧を取得
+   */
+  async getMunicipalitiesByPrefecture(prefectureSlug: string): Promise<Municipality[]>;
+
+  /**
+   * 公開中の全市町村を取得（generateStaticParams用）
+   */
+  async getPublicMunicipalities(): Promise<Municipality[]>;
+
+  /**
+   * インデックス対象の市町村を取得（sitemap生成用）
+   * isPublic=true && status.isIndexed=true のみ
+   */
+  async getIndexedMunicipalities(): Promise<Municipality[]>;
+
+  /**
+   * 市町村の最新更新日時を取得（sitemap lastModified用）
+   * 該当市町村の全レイヤーの lastImportedAt から最新値を返す
+   */
+  async getLatestImportedAt(jisCode: string): Promise<Date | null>;
+}
+```
+
+**依存関係**:
+
+- Supabase Client（サーバーサイド）
+
+**注意**: このクラスはサーバーサイド専用。Client Componentからは使用不可。
+
+### MunicipalityService（市町村サービス / クライアントサイド）
+
+**責務**:
+
+- API Route経由での市町村データ取得
+- Client Componentからのランタイムデータ取得
+
+**インターフェース**:
+
+```typescript
+// lib/services/municipality/MunicipalityService.ts
+class MunicipalityService {
+  /**
+   * API経由で市町村を取得
+   * GET /api/municipalities/{prefectureSlug}/{municipalitySlug}
+   */
+  async getMunicipality(
+    prefectureSlug: string,
+    municipalitySlug: string
+  ): Promise<Municipality | null>;
+
+  /**
+   * API経由で都道府県内の市町村一覧を取得
+   * GET /api/municipalities?prefecture={prefectureSlug}
+   */
+  async getMunicipalitiesByPrefecture(prefectureSlug: string): Promise<Municipality[]>;
+}
+```
+
+**依存関係**:
+
+- なし（fetch APIを使用）
+
+**注意**: クライアントサイド専用。静的生成やServer Componentでは MunicipalityRepository を使用すること。
+
+### MunicipalityLayerStatusRepository（市町村レイヤー状態リポジトリ / サーバーサイド）
+
+**責務**:
+
+- 市町村別レイヤー状態の取得
+- 更新日時・件数情報の提供
+
+**インターフェース**:
+
+```typescript
+// lib/server/municipality/MunicipalityLayerStatusRepository.ts
+class MunicipalityLayerStatusRepository {
+  /**
+   * 市町村のレイヤー状態を取得
+   */
+  async getLayerStatus(
+    jisCode: string,
+    layerType: POIType
+  ): Promise<MunicipalityLayerStatus | null>;
+
+  /**
+   * 市町村の全レイヤー状態を取得
+   */
+  async getAllLayerStatuses(jisCode: string): Promise<MunicipalityLayerStatus[]>;
+
+  /**
+   * 市町村の最新インポート日時を取得
+   * 全レイヤーの lastImportedAt から最新値を返す
+   */
+  async getLatestImportedAt(jisCode: string): Promise<Date | null>;
+}
+```
+
+**依存関係**:
+
+- Supabase Client（サーバーサイド）
+
+**注意**: このクラスはサーバーサイド専用。ページ表示時のレイヤー状態取得に使用。
+
 ## ユースケース図
 
 ### ユースケース1: WGS84座標入力→地図起動
@@ -973,6 +1273,65 @@ sequenceDiagram
 3. 消火栓データを取得して表示
 4. ユーザーがAEDをOFFにすると非表示
 
+### ユースケース7: 市町村ページ初期表示
+
+```mermaid
+sequenceDiagram
+    participant User as ユーザー
+    participant Router as Next.js Router
+    participant Page as 市町村ページ
+    participant MuniSvc as MunicipalityService
+    participant Map as Mapbox GL JS
+    participant POISvc as POIService
+    participant API as 自前API
+
+    User->>Router: /maps/ishikawa/wajima にアクセス
+    Router->>Page: prefectureSlug="ishikawa"<br/>municipalitySlug="wajima"
+
+    Page->>MuniSvc: getMunicipality(prefectureSlug, municipalitySlug)
+    MuniSvc-->>Page: Municipality設定
+
+    alt status.isPublic=false
+        Page-->>User: 404ページ
+    else status.isPublic=true
+        Page->>Page: generateMetadata()で<br/>SEOメタデータを設定
+        Note over Page: isIndexed=false の場合<br/>robots: noindex,nofollow
+
+        Page->>Map: fitBounds(bbox)<br/>または flyTo(center, initialZoom)
+        Map-->>User: 市町村範囲で地図表示
+
+        Page->>POISvc: getPOIs({<br/>  bbox: municipality.map.bbox,<br/>  types: defaultLayers<br/>})
+        POISvc->>API: GET /api/pois?bbox=...&types=...
+        API-->>POISvc: POI一覧
+        POISvc-->>Map: GeoJSON
+        Map-->>User: 市町村内POI表示
+
+        Page-->>User: ページコンテンツ表示<br/>(h1, 導入文, 注意事項, ソース情報)
+    end
+```
+
+**フロー説明**:
+
+1. ユーザーが市町村URL（例: `/maps/ishikawa/wajima`）にアクセス
+2. Next.js RouterがURLからスラッグを抽出
+3. MunicipalityServiceから市町村設定を取得
+4. `isPublic=false` の場合は404を返す
+5. `generateMetadata()` でSEOメタデータを動的生成
+   - `isIndexed=false` の場合は `robots: noindex,nofollow` を付与
+6. 市町村の `bbox` / `center` / `initialZoom` で地図を初期表示
+7. `defaultLayers` に従って初期レイヤーを有効化
+8. 市町村 `bbox` を使用して初回POI取得
+9. ページコンテンツ（h1、導入文、注意事項、データソース情報）を表示
+
+**代替シナリオ**:
+
+| 条件 | 動作 |
+|------|------|
+| 市町村が見つからない | 404ページ表示 |
+| `isPublic=false` | 404ページ表示 |
+| `isIndexed=false` | ページは表示、noindexメタタグ付与 |
+| POI取得失敗 | 地図は表示、POIなしで継続 |
+
 ## 画面遷移図
 
 ```mermaid
@@ -1003,6 +1362,480 @@ stateDiagram-v2
         }
     }
 ```
+
+## ルーティング設計
+
+### URL構造
+
+市町村ごとの検索流入を受けるため、正規URLを市町村単位で持つ。
+
+```
+/maps                                    # 全国トップ
+/maps/[prefectureSlug]                   # 都道府県ページ
+/maps/[prefectureSlug]/[municipalitySlug] # 市町村ページ
+```
+
+**例**:
+- `/maps` - 全国の入口
+- `/maps/ishikawa` - 石川県
+- `/maps/ishikawa/wajima` - 輪島市
+
+### Next.js App Router設計
+
+```
+app/
+  maps/
+    page.tsx                           # /maps - 全国トップ
+    [prefectureSlug]/
+      page.tsx                         # /maps/[prefecture] - 都道府県ページ
+      [municipalitySlug]/
+        page.tsx                       # /maps/[prefecture]/[municipality] - 市町村ページ
+```
+
+### metadata動的生成
+
+```typescript
+// app/maps/[prefectureSlug]/[municipalitySlug]/page.tsx
+
+interface PageProps {
+  params: Promise<{
+    prefectureSlug: string;
+    municipalitySlug: string;
+  }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { prefectureSlug, municipalitySlug } = await params;
+  // サーバーサイドではRepositoryを直接使用
+  const municipality = await getMunicipalityRepository().getMunicipality(
+    prefectureSlug,
+    municipalitySlug
+  );
+
+  // RLSにより isPublic=false の市町村は null として返却される
+  if (!municipality) {
+    return {};
+  }
+
+  return {
+    title: municipality.seo.title,
+    description: municipality.seo.description,
+    robots: municipality.status.isIndexed ? 'index,follow' : 'noindex,nofollow',
+    alternates: {
+      canonical: municipality.seo.canonicalPath,
+    },
+    openGraph: {
+      title: municipality.seo.title,
+      description: municipality.seo.description,
+      url: municipality.path,
+    },
+  };
+}
+
+export default async function MunicipalityPage({ params }: PageProps) {
+  const { prefectureSlug, municipalitySlug } = await params;
+  // サーバーサイドではRepositoryを直接使用
+  const municipality = await getMunicipalityRepository().getMunicipality(
+    prefectureSlug,
+    municipalitySlug
+  );
+
+  // RLSにより isPublic=false の市町村は null として返却される
+  if (!municipality) {
+    notFound();
+  }
+
+  return <MunicipalityMapView municipality={municipality} />;
+}
+```
+
+### 運用設計
+
+#### 静的生成（generateStaticParams）
+
+- `generateStaticParams` を使用して `isPublic=true` の市町村ページを事前生成
+- ビルド時に市町村マスタから公開対象を取得
+- 新規市町村追加時は再ビルドまたはISR（Incremental Static Regeneration）で対応
+
+```typescript
+export async function generateStaticParams() {
+  // サーバーサイドではRepositoryを直接使用
+  const municipalities = await getMunicipalityRepository().getPublicMunicipalities();
+
+  return municipalities.map((m) => ({
+    prefectureSlug: m.prefectureSlug,
+    municipalitySlug: m.municipalitySlug,
+  }));
+}
+```
+
+#### noindex制御
+
+- `isIndexed=false` の市町村ページには `<meta name="robots" content="noindex,nofollow">` を付与
+- `generateMetadata()` 内で `robots` フィールドを条件分岐
+- データ未整備の市町村ページを段階的に公開する際に使用
+
+#### sitemap生成
+
+- sitemap.xml には `isPublic=true && isIndexed=true` のページのみ含める
+- `app/sitemap.ts` で市町村マスタをフィルタして動的生成
+- 都道府県ページも同様の条件で含める
+
+```typescript
+// app/sitemap.ts
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const repo = getMunicipalityRepository();
+  const layerStatusRepo = getMunicipalityLayerStatusRepository();
+  const municipalities = await repo.getIndexedMunicipalities();
+
+  const entries = await Promise.all(
+    municipalities.map(async (m) => {
+      // 該当市町村の最新インポート日時を取得
+      const lastImportedAt = await layerStatusRepo.getLatestImportedAt(m.jisCode);
+      return {
+        url: `https://example.com${m.path}`,
+        lastModified: lastImportedAt ?? new Date(),
+        changeFrequency: 'weekly' as const,
+        priority: 0.8,
+      };
+    })
+  );
+
+  return entries;
+}
+```
+
+### クエリパラメータ
+
+表示状態の共有・復元にはクエリパラメータを使用する。
+
+| パラメータ | 説明 | 例 |
+|-----------|------|-----|
+| `layers` | 有効なレイヤー | `layers=aed,fireHydrant` |
+| `poi` | 選択中のPOI ID | `poi=aed-123` |
+| `lat`, `lng`, `z` | 地図の中心座標とズーム | `lat=37.4&lng=136.9&z=14` |
+| `q` | 検索クエリ（将来用） | `q=輪島市役所` |
+
+### canonical制御
+
+- **canonical は常に市町村固定URLに寄せる**
+  - 例: `/maps/ishikawa/wajima?layers=aed&poi=123` の canonical は `/maps/ishikawa/wajima`
+- クエリ違いだけのページはインデックス対象にしない
+
+## バックエンド基盤設計
+
+### Supabase + PostGIS構成
+
+フロントエンドは公的APIを直接叩かず、自前APIを経由してPOIデータを取得する。
+
+**バックエンドデータストア**:
+
+- **Supabase Postgres** を基盤とする
+- **PostGIS拡張** を有効化し、空間検索機能を利用
+- bbox検索を効率的に実行するため空間インデックス（GIST）を使用
+
+**データ永続化の範囲**:
+
+| 対象 | 永続化 | 備考 |
+|------|--------|------|
+| 公開POIデータ | ○ サーバーサイドDB | AED、消火栓など |
+| 市町村マスタ | ○ サーバーサイドDB | ルーティング・SEO設定 |
+| 市町村レイヤー状態 | ○ サーバーサイドDB | 更新日時・件数 |
+| ユーザー入力・変換履歴 | × 端末ローカルのみ | MVPではサーバー保存なし |
+
+### データベーススキーマ
+
+```sql
+-- PostGIS拡張を有効化
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- 市町村マスタテーブル
+CREATE TABLE municipalities (
+  jis_code VARCHAR(6) PRIMARY KEY,
+  prefecture_slug VARCHAR(50) NOT NULL,
+  municipality_slug VARCHAR(50) NOT NULL,
+  prefecture_name_ja VARCHAR(20) NOT NULL,
+  municipality_name_ja VARCHAR(50) NOT NULL,
+  center_lat DECIMAL(9,6) NOT NULL,
+  center_lng DECIMAL(9,6) NOT NULL,
+  bbox_north DECIMAL(9,6) NOT NULL,
+  bbox_south DECIMAL(9,6) NOT NULL,
+  bbox_east DECIMAL(9,6) NOT NULL,
+  bbox_west DECIMAL(9,6) NOT NULL,
+  initial_zoom INTEGER DEFAULT 12,
+  default_layers TEXT[] DEFAULT ARRAY['aed'],
+  available_layers TEXT[] DEFAULT ARRAY['aed', 'fireHydrant'],
+  seo_title VARCHAR(200),
+  seo_description TEXT,
+  seo_h1 VARCHAR(200),
+  content_intro_text TEXT,
+  content_caution_text TEXT,
+  is_public BOOLEAN DEFAULT false,
+  is_indexed BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+
+  UNIQUE (prefecture_slug, municipality_slug)
+);
+
+-- 市町村別レイヤー状態テーブル
+CREATE TABLE municipality_layer_statuses (
+  id SERIAL PRIMARY KEY,
+  municipality_jis_code VARCHAR(6) REFERENCES municipalities(jis_code),
+  layer_type VARCHAR(20) NOT NULL,
+  item_count INTEGER DEFAULT 0,
+  last_imported_at TIMESTAMP,
+  source_updated_at TIMESTAMP,
+  is_available BOOLEAN DEFAULT true,
+
+  UNIQUE (municipality_jis_code, layer_type)
+);
+
+-- POIテーブル（PostGIS geometry型）
+CREATE TABLE pois (
+  id VARCHAR(100) PRIMARY KEY,
+  type VARCHAR(20) NOT NULL,
+  name VARCHAR(200) NOT NULL,
+  location geometry(Point, 4326) NOT NULL,  -- WGS84座標
+  address VARCHAR(500),
+  detail_text TEXT,
+  availability_text VARCHAR(200),
+  child_pad_available BOOLEAN,
+  source VARCHAR(100),
+  source_updated_at TIMESTAMP,
+  imported_at TIMESTAMP DEFAULT NOW(),
+  municipality_jis_code VARCHAR(6) REFERENCES municipalities(jis_code)
+);
+
+-- 空間インデックス（GIST）
+CREATE INDEX idx_pois_location ON pois USING GIST(location);
+CREATE INDEX idx_pois_type ON pois(type);
+CREATE INDEX idx_pois_municipality ON pois(municipality_jis_code);
+```
+
+### 空間検索パターン
+
+```sql
+-- bbox検索（地図表示用、主用途）
+-- geometry型 + && 演算子 + GISTインデックスで高速検索
+SELECT
+  id,
+  type,
+  name,
+  ST_Y(location) as latitude,
+  ST_X(location) as longitude,
+  address
+FROM pois
+WHERE type = ANY($1::text[])  -- types配列
+  AND location && ST_MakeEnvelope($2, $3, $4, $5, 4326)  -- west, south, east, north
+ORDER BY id
+LIMIT $6;
+
+-- 距離計算が必要な場合のみ geography cast を使用
+SELECT
+  id,
+  name,
+  ST_Y(location) as latitude,
+  ST_X(location) as longitude,
+  ST_Distance(
+    location::geography,
+    ST_MakePoint($1, $2)::geography
+  ) as distance_meters
+FROM pois
+WHERE ST_DWithin(
+  location::geography,
+  ST_MakePoint($1, $2)::geography,  -- lng, lat
+  $3  -- radius_meters
+)
+ORDER BY distance_meters
+LIMIT $4;
+```
+
+### Supabase権限設計
+
+#### 読取方針
+
+- 公開POIデータは `anon` ロールで読取可能（RLS有効、SELECT許可）
+- `municipalities` / `municipality_layer_statuses` も `anon` で読取可能
+- ただし `is_public=false` の市町村はRLSで非公開
+
+```sql
+-- RLSを有効化
+ALTER TABLE municipalities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pois ENABLE ROW LEVEL SECURITY;
+
+-- anonロールでの読取ポリシー（公開市町村のみ）
+CREATE POLICY "Public municipalities are viewable by everyone"
+ON municipalities FOR SELECT
+USING (is_public = true);
+
+-- anonロールでのPOI読取ポリシー（公開市町村に属するPOIのみ）
+CREATE POLICY "POIs in public municipalities are viewable"
+ON pois FOR SELECT
+USING (
+  municipality_jis_code IN (
+    SELECT jis_code FROM municipalities WHERE is_public = true
+  )
+);
+```
+
+#### 書込・更新方針
+
+- データ取り込み・更新は `service_role` / バッチ処理のみ
+- `anon` ロールには INSERT/UPDATE/DELETE 権限なし
+- 定期インポートバッチが `service_role` で実行
+
+```sql
+-- service_roleには全権限
+-- anonには読取のみ（INSERT/UPDATE/DELETEなし）
+GRANT SELECT ON municipalities TO anon;
+GRANT SELECT ON pois TO anon;
+GRANT SELECT ON municipality_layer_statuses TO anon;
+
+-- service_roleにはCRUD全権限
+GRANT ALL ON municipalities TO service_role;
+GRANT ALL ON pois TO service_role;
+GRANT ALL ON municipality_layer_statuses TO service_role;
+```
+
+#### isPublic / isIndexed の制御
+
+| isPublic | isIndexed | 動作 |
+|----------|-----------|------|
+| false | - | RLSで非公開、API/ページで404を返す |
+| true | false | 公開するが `noindex,nofollow` を付与 |
+| true | true | 完全公開、sitemapに含む |
+
+- `isPublic=false`: データ自体が非公開（RLSでフィルタ）
+- `isIndexed=false`: データは公開するが検索エンジンには露出しない（段階的公開用）
+
+### 更新戦略
+
+公開データは定期的にSupabase DBへ同期する。
+
+**更新頻度**:
+
+- 日次〜週次での同期を基本
+- リアルタイム更新は不要
+
+**保持情報**:
+
+- `source`: データソース名
+- `source_updated_at`: ソース側の更新日時
+- `imported_at` / `last_imported_at`: 自前DBへの反映日時
+
+**更新日時の使い分け**:
+
+- **lastImportedAt**: アプリへの最終反映日時。ページ上で「最終更新日」として表示
+- **sourceUpdatedAt**: 元データ（公開データソース）の更新日時。参照情報として補足表示
+
+## API設計
+
+### POI API
+
+#### GET /api/pois - POI一覧取得
+
+**クエリパラメータ**:
+
+| パラメータ | 必須 | 形式 | 説明 |
+|-----------|------|------|------|
+| `bbox` | ○ | `west,south,east,north` | 表示範囲（例: `136.5,37.0,137.5,37.8`） |
+| `types` | - | `aed,fireHydrant` | 取得するPOI種別（デフォルト: 全種別） |
+| `zoom` | - | 数値 | ズームレベル（返却件数・詳細度の調整に使用） |
+| `municipalityCode` | - | JISコード | 市町村初回取得用 |
+
+**レスポンス**:
+
+```typescript
+interface POIListResponse {
+  pois: POIListItem[];
+  meta: {
+    total: number;
+    bbox: {
+      west: number;
+      south: number;
+      east: number;
+      north: number;
+    };
+    types: POIType[];
+  };
+}
+
+interface POIListItem {
+  id: string;
+  type: POIType;
+  name: string;
+  latitude: number;
+  longitude: number;
+  address?: string;
+}
+```
+
+**設計原則**:
+
+- 一覧取得では **パネル初期表示に必要な最小限項目** のみ返却
+- POIタップ時にパネルを即座に表示し、詳細情報は非同期で補完
+
+#### GET /api/pois/{id} - POI詳細取得
+
+**レスポンス**:
+
+```typescript
+interface POIDetailResponse {
+  poi: POIDetail;
+}
+
+interface POIDetail extends POIListItem {
+  detailText?: string;         // 設置場所詳細
+  availabilityText?: string;   // 利用可能時間
+  childPadAvailable?: boolean; // 小児対応（AED）
+  source: string;              // データソース
+  updatedAt?: Date;            // データ更新日時
+}
+```
+
+**設計原則**:
+
+- 詳細取得では **一覧に含まれない追加情報のみ** を補完
+- 詳細情報が不要なケース（外部地図起動のみ）では呼び出し不要
+
+### Municipality API
+
+#### GET /api/municipalities/{prefectureSlug}/{municipalitySlug}
+
+**用途**: Client Componentからの市町村詳細取得
+
+**レスポンス**:
+
+```typescript
+interface MunicipalityResponse {
+  municipality: Municipality;
+  layerStatuses: MunicipalityLayerStatus[];
+}
+```
+
+#### GET /api/municipalities - 市町村一覧取得
+
+**用途**: Client Componentからの市町村一覧取得（都道府県ページ等）
+
+**クエリパラメータ**:
+
+| パラメータ | 必須 | 形式 | 説明 |
+|-----------|------|------|------|
+| `prefecture` | - | slug | 都道府県でフィルタ |
+
+**レスポンス**:
+
+```typescript
+interface MunicipalityListResponse {
+  municipalities: Municipality[];
+  total: number;
+}
+```
+
+**注意**:
+- RLSにより `isPublic=true` の市町村のみ返却
+- `isPublic` / `isIndexed` でのフィルタは不要（静的生成時はRepository直利用）
 
 ## アルゴリズム設計
 
