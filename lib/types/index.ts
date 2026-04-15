@@ -41,3 +41,23 @@ export type {
   POIQueryOptions,
 } from './poi';
 export { DEFAULT_LAYER_VISIBILITY } from './poi';
+
+// 市町村関連
+export type {
+  Municipality,
+  MunicipalityStatus,
+  MunicipalityMapConfig,
+  MunicipalityLayerConfig,
+  MunicipalitySeoConfig,
+  MunicipalityContentConfig,
+  MunicipalityLayerStatus,
+} from './municipality';
+export { toMunicipality, toMunicipalityLayerStatus } from './municipality';
+
+// データベース関連
+export type {
+  Database,
+  MunicipalityRow,
+  MunicipalityLayerStatusRow,
+  POIRow,
+} from './database';
