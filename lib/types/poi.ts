@@ -6,8 +6,45 @@ import type { Coordinate } from './coordinate';
 export type POIType = 'aed' | 'fireHydrant' | 'fireCistern';
 
 /**
- * POI基本インターフェース
+ * POI一覧取得用の最小限フィールド
+ * パネル初期表示に必要な情報のみを含む
+ */
+export interface POIListItem {
+  /** 一意識別子 */
+  id: string;
+  /** POI種別 */
+  type: POIType;
+  /** 名称 */
+  name: string;
+  /** 緯度（WGS84） */
+  latitude: number;
+  /** 経度（WGS84） */
+  longitude: number;
+  /** 住所 */
+  address?: string;
+}
+
+/**
+ * POI詳細取得用の全フィールド
+ * 一覧データに追加詳細を含む
+ */
+export interface POIDetail extends POIListItem {
+  /** 設置場所詳細などの補足情報 */
+  detailText?: string;
+  /** 利用可能時間などの可用性情報 */
+  availabilityText?: string;
+  /** 小児対応パッド有無（AEDのみ） */
+  childPadAvailable?: boolean;
+  /** データソース */
+  source: string;
+  /** データ更新日時 */
+  updatedAt?: string;
+}
+
+/**
+ * POI基本インターフェース（レガシー、既存コード互換用）
  * 公開設備情報の共通構造
+ * @deprecated POIListItem / POIDetail を使用してください
  */
 export interface POI {
   /** 一意識別子 */

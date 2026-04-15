@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { SlidePanel } from "@/components/map/SlidePanel";
 
@@ -22,7 +22,7 @@ const MapView = dynamic(
 import { SearchBar } from "@/components/search/SearchBar";
 import { useConversion } from "@/components/hooks/useConversion";
 import { useMapInteraction } from "@/components/hooks/useMapInteraction";
-import { Coordinate, POI, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from "@/lib/types";
+import { Coordinate, POIListItem, POIDetail, MapBounds, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from "@/lib/types";
 import { poiService } from "@/lib/services";
 
 export default function Home() {
@@ -34,38 +34,59 @@ export default function Home() {
   const [isConversionPanelClosed, setIsConversionPanelClosed] = useState(false);
 
   // POI関連の状態
-  const [pois, setPois] = useState<POI[]>([]);
-  const [selectedPoi, setSelectedPoi] = useState<POI | null>(null);
+  const [pois, setPois] = useState<POIListItem[]>([]);
+  const [selectedPoi, setSelectedPoi] = useState<POIListItem | null>(null);
+  const [selectedPoiDetail, setSelectedPoiDetail] = useState<POIDetail | null>(null);
   const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>(DEFAULT_LAYER_VISIBILITY);
   const [isPoiPanelOpen, setIsPoiPanelOpen] = useState(false);
+
+  // デバウンス用のタイマー
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // 変換結果がある場合、ユーザーが閉じていなければパネルを開く
   const isConversionPanelOpen = result !== null && !isConversionPanelClosed;
 
-  // 初回マウント時にPOIデータを取得
-  useEffect(() => {
-    const loadPOIs = async () => {
-      // 東京駅周辺の広めのboundsでモックデータを取得
-      const bounds = {
-        north: 35.69,
-        south: 35.67,
-        east: 139.78,
-        west: 139.76,
-      };
+  // マップビューポート変更時にPOIを再取得（デバウンス300ms）
+  const handleMoveEnd = useCallback((bounds: MapBounds) => {
+    // 既存のタイマーをクリア
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // 300msデバウンス
+    debounceTimerRef.current = setTimeout(async () => {
+      // 現在有効なレイヤーのPOI種別を取得
+      const types: Array<'aed' | 'fireHydrant'> = [];
+      if (layerVisibility.aed) types.push('aed');
+      if (layerVisibility.fireHydrant) types.push('fireHydrant');
+
+      if (types.length === 0) {
+        setPois([]);
+        return;
+      }
+
       const loadedPois = await poiService.getPOIs({
         bounds,
-        types: ['aed', 'fireHydrant'],
+        types,
       });
       setPois(loadedPois);
+    }, 300);
+  }, [layerVisibility]);
+
+  // コンポーネントアンマウント時にタイマーをクリア
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     };
-    loadPOIs();
   }, []);
 
   // flyTo座標は結果・POI選択・長押しピンから導出
   const flyToCoordinate = useMemo<Coordinate | null>(() => {
     // POI選択時
     if (selectedPoi && isPoiPanelOpen) {
-      return selectedPoi.coordinate;
+      return { latitude: selectedPoi.latitude, longitude: selectedPoi.longitude };
     }
     // 長押しピン時
     if (pin && isPanelOpen) {
@@ -79,22 +100,30 @@ export default function Home() {
   }, [selectedPoi, isPoiPanelOpen, pin, isPanelOpen, result, isConversionPanelClosed]);
 
   // POI選択ハンドラ（排他制御: アクティブピン・変換結果をクリア）
-  const handlePoiSelect = useCallback((poi: POI) => {
+  const handlePoiSelect = useCallback(async (poi: POIListItem) => {
     // 変換結果をクリア
     clear();
     setIsConversionPanelClosed(true);
     // 長押しピンをクリア
     closePanel();
     clearPin();
-    // POIを選択
+    // POIを選択（一覧データでパネルを即座に表示）
     setSelectedPoi(poi);
+    setSelectedPoiDetail(null); // 詳細は後で取得
     setIsPoiPanelOpen(true);
+
+    // バックグラウンドで詳細を取得
+    const detail = await poiService.getPOIDetail(poi.id);
+    if (detail) {
+      setSelectedPoiDetail(detail);
+    }
   }, [clear, closePanel, clearPin]);
 
   // POIパネルを閉じる
   const handleClosePoiPanel = useCallback(() => {
     setIsPoiPanelOpen(false);
     setSelectedPoi(null);
+    setSelectedPoiDetail(null);
   }, []);
 
   // レイヤー表示切替ハンドラ
@@ -176,6 +205,7 @@ export default function Home() {
             layerVisibility={layerVisibility}
             onPoiSelect={handlePoiSelect}
             onLayerVisibilityChange={handleLayerVisibilityChange}
+            onMoveEnd={handleMoveEnd}
           />
         </div>
 
@@ -202,6 +232,7 @@ export default function Home() {
         {selectedPoi && (
           <SlidePanel
             selectedPoi={selectedPoi}
+            selectedPoiDetail={selectedPoiDetail}
             isOpen={isPoiPanelOpen}
             onClose={handleClosePoiPanel}
           />

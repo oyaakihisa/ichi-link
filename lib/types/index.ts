@@ -32,6 +32,8 @@ export { DEFAULT_MAP_STATE, TABS } from './map';
 export type {
   POIType,
   POI,
+  POIListItem,
+  POIDetail,
   AEDDetail,
   FireHydrantDetail,
   LayerVisibility,

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { DEFAULT_MAP_STATE, Coordinate, POI, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from '@/lib/types';
+import { DEFAULT_MAP_STATE, Coordinate, POIListItem, MapBounds, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from '@/lib/types';
 import { LayerToggleControl } from './LayerToggle';
 
 const LONG_PRESS_DURATION = 500; // ms
@@ -12,14 +12,14 @@ const AED_LAYER_ID = 'aed-layer';
 const FIRE_HYDRANT_LAYER_ID = 'fire-hydrant-layer';
 
 // POIデータをGeoJSON形式に変換
-function createPOIGeoJSON(pois: POI[]): GeoJSON.FeatureCollection {
+function createPOIGeoJSON(pois: POIListItem[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: pois.map((poi) => ({
       type: 'Feature' as const,
       geometry: {
         type: 'Point' as const,
-        coordinates: [poi.coordinate.longitude, poi.coordinate.latitude],
+        coordinates: [poi.longitude, poi.latitude],
       },
       properties: {
         id: poi.id,
@@ -33,7 +33,7 @@ function createPOIGeoJSON(pois: POI[]): GeoJSON.FeatureCollection {
 // POIレイヤーをマップに追加
 function setupPOILayers(
   map: mapboxgl.Map,
-  pois: POI[],
+  pois: POIListItem[],
   layerVisibility: LayerVisibility,
   selectedPoiId?: string | null
 ): void {
@@ -190,11 +190,12 @@ interface MapViewProps {
   flyToCoordinate?: Coordinate | null;
   flyToZoom?: number;
   // POI関連
-  pois?: POI[];
+  pois?: POIListItem[];
   selectedPoiId?: string | null;
   layerVisibility?: LayerVisibility;
-  onPoiSelect?: (poi: POI) => void;
+  onPoiSelect?: (poi: POIListItem) => void;
   onLayerVisibilityChange?: (visibility: LayerVisibility) => void;
+  onMoveEnd?: (bounds: MapBounds) => void;
 }
 
 export function MapView({
@@ -208,6 +209,7 @@ export function MapView({
   layerVisibility = DEFAULT_LAYER_VISIBILITY,
   onPoiSelect,
   onLayerVisibilityChange,
+  onMoveEnd,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -218,11 +220,12 @@ export function MapView({
   const [isMapReady, setIsMapReady] = useState(false);
 
   // 最新値を参照するためのref（useEffect依存配列を減らすため）
-  const poisRef = useRef<POI[]>(pois);
+  const poisRef = useRef<POIListItem[]>(pois);
   const layerVisibilityRef = useRef<LayerVisibility>(layerVisibility);
   const onLayerVisibilityChangeRef = useRef(onLayerVisibilityChange);
   const onPoiSelectRef = useRef(onPoiSelect);
   const selectedPoiIdRef = useRef<string | null | undefined>(selectedPoiId);
+  const onMoveEndRef = useRef(onMoveEnd);
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimer.current) {
@@ -252,6 +255,10 @@ export function MapView({
   useEffect(() => {
     selectedPoiIdRef.current = selectedPoiId;
   }, [selectedPoiId]);
+
+  useEffect(() => {
+    onMoveEndRef.current = onMoveEnd;
+  }, [onMoveEnd]);
 
   const handleLongPressStart = useCallback(
     (e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
@@ -599,6 +606,30 @@ export function MapView({
       map.on('mouseleave', FIRE_HYDRANT_LAYER_ID, () => {
         map.getCanvas().style.cursor = '';
       });
+
+      // マップ移動/ズーム終了時にboundsを通知
+      map.on('moveend', () => {
+        const mapBounds = map.getBounds();
+        if (!mapBounds) return;
+        const bounds: MapBounds = {
+          north: mapBounds.getNorth(),
+          south: mapBounds.getSouth(),
+          east: mapBounds.getEast(),
+          west: mapBounds.getWest(),
+        };
+        onMoveEndRef.current?.(bounds);
+      });
+
+      // 初回ロード時にも現在のboundsを通知
+      const initialBounds = map.getBounds();
+      if (initialBounds) {
+        onMoveEndRef.current?.({
+          north: initialBounds.getNorth(),
+          south: initialBounds.getSouth(),
+          east: initialBounds.getEast(),
+          west: initialBounds.getWest(),
+        });
+      }
 
       setIsMapReady(true);
       log('onMapReady呼び出し');

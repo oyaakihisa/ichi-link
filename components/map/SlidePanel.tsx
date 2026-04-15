@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { PinLocation, Coordinate, ConversionResult, Warning, POI } from '@/lib/types';
+import { PinLocation, Coordinate, ConversionResult, Warning, POIListItem, POIDetail } from '@/lib/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { WarningDisplay } from '@/components/result/WarningDisplay';
 import { MapButtons } from '@/components/result/MapButtons';
@@ -25,8 +25,9 @@ interface SlidePanelProps {
   isLoadingAddress?: boolean;
   // 変換結果モード用
   conversionResult?: ConversionResult | null;
-  // POIモード用
-  selectedPoi?: POI | null;
+  // POIモード用（一覧データ + 詳細データ）
+  selectedPoi?: POIListItem | null;
+  selectedPoiDetail?: POIDetail | null;
   // 共通
   isOpen: boolean;
   onClose: () => void;
@@ -75,6 +76,7 @@ export function SlidePanel({
   isLoadingAddress = false,
   conversionResult,
   selectedPoi,
+  selectedPoiDetail,
   isOpen,
   onClose,
 }: SlidePanelProps) {
@@ -97,8 +99,8 @@ export function SlidePanel({
   const mode: PanelMode = selectedPoi ? 'poi' : conversionResult ? 'conversion' : 'pin';
 
   // 座標データを取得
-  const wgs84Coord = selectedPoi
-    ? selectedPoi.coordinate
+  const wgs84Coord: Coordinate | undefined = selectedPoi
+    ? { latitude: selectedPoi.latitude, longitude: selectedPoi.longitude }
     : conversionResult
       ? conversionResult.coordinates.wgs84
       : pin?.coordinate;
@@ -108,6 +110,10 @@ export function SlidePanel({
   const address = selectedPoi?.address || conversionResult?.address || pin?.address;
   const warnings: Warning[] = conversionResult?.warnings || [];
   const mapUrls = conversionResult?.mapUrls;
+
+  // POI詳細データ（一覧から取得できない追加情報）
+  const detailText = selectedPoiDetail?.detailText;
+  const availabilityText = selectedPoiDetail?.availabilityText;
 
   const googleMapsUrl = useMemo(() => {
     if (mapUrls) return mapUrls.googleMaps;
@@ -301,19 +307,19 @@ export function SlidePanel({
           {/* POIモード: 詳細情報 */}
           {mode === 'poi' && selectedPoi && (
             <>
-              {/* 設置場所詳細 */}
-              {selectedPoi.detailText && (
+              {/* 設置場所詳細（詳細API取得後に表示） */}
+              {detailText && (
                 <div className="mb-4">
                   <span className="text-xs text-gray-500 uppercase tracking-wide">設置場所</span>
-                  <p className="mt-1 text-sm text-gray-900">{selectedPoi.detailText}</p>
+                  <p className="mt-1 text-sm text-gray-900">{detailText}</p>
                 </div>
               )}
 
-              {/* 利用可能時間 */}
-              {selectedPoi.availabilityText && (
+              {/* 利用可能時間（詳細API取得後に表示） */}
+              {availabilityText && (
                 <div className="mb-4">
                   <span className="text-xs text-gray-500 uppercase tracking-wide">利用可能時間</span>
-                  <p className="mt-1 text-sm text-gray-900">{selectedPoi.availabilityText}</p>
+                  <p className="mt-1 text-sm text-gray-900">{availabilityText}</p>
                 </div>
               )}
 
