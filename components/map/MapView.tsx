@@ -196,6 +196,10 @@ interface MapViewProps {
   onPoiSelect?: (poi: POIListItem) => void;
   onLayerVisibilityChange?: (visibility: LayerVisibility) => void;
   onMoveEnd?: (bounds: MapBounds) => void;
+  // 初期表示設定（市町村ページ用）
+  initialCenter?: Coordinate;
+  initialZoom?: number;
+  initialBounds?: MapBounds;
 }
 
 export function MapView({
@@ -210,6 +214,9 @@ export function MapView({
   onPoiSelect,
   onLayerVisibilityChange,
   onMoveEnd,
+  initialCenter,
+  initialZoom,
+  initialBounds,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -495,12 +502,31 @@ export function MapView({
     mapboxgl.accessToken = token;
 
     log('new mapboxgl.Map() 直前');
-    const map = new mapboxgl.Map({
+
+    // 初期表示設定: propsがあればそちらを使用、なければデフォルト値
+    const mapCenter = initialCenter
+      ? [initialCenter.longitude, initialCenter.latitude] as [number, number]
+      : [DEFAULT_MAP_STATE.center.longitude, DEFAULT_MAP_STATE.center.latitude] as [number, number];
+    const mapZoom = initialZoom ?? DEFAULT_MAP_STATE.zoom;
+
+    // initialBoundsが指定されている場合はbounds優先（center/zoomは後で上書き）
+    const mapOptions: mapboxgl.MapboxOptions = {
       container: mapContainer.current,
       style: MAP_STYLES.streets,
-      center: [DEFAULT_MAP_STATE.center.longitude, DEFAULT_MAP_STATE.center.latitude],
-      zoom: DEFAULT_MAP_STATE.zoom,
-    });
+      center: mapCenter,
+      zoom: mapZoom,
+    };
+
+    // boundsが指定されている場合はboundsを使用
+    if (initialBounds) {
+      mapOptions.bounds = [
+        [initialBounds.west, initialBounds.south],
+        [initialBounds.east, initialBounds.north],
+      ];
+      mapOptions.fitBoundsOptions = { padding: 20 };
+    }
+
+    const map = new mapboxgl.Map(mapOptions);
     log('new mapboxgl.Map() 直後');
 
     // ナビゲーションコントロールを追加（右下に配置、スマホで検索バーと重ならないように）
@@ -666,6 +692,9 @@ export function MapView({
       map.remove();
       mapRef.current = null;
     };
+    // initialBounds/initialCenter/initialZoomは初期化時のみ使用し、
+    // その後の変更は意図的に無視する（マップは一度だけ初期化される）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onMapReady, handleLongPressStart, handleMove, clearLongPressTimer, handlePOIClick]);
 
   return (

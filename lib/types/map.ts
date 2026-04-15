@@ -6,8 +6,8 @@ import { Coordinate } from './coordinate';
 export interface PinLocation {
   /** WGS84座標（ピン位置） */
   coordinate: Coordinate;
-  /** Tokyo Datum座標 */
-  tokyoCoordinate: Coordinate;
+  /** Tokyo Datum座標（変換ツールでは必須、市町村ページでは省略可） */
+  tokyoCoordinate?: Coordinate;
   /** 逆ジオコーディングで取得した住所 */
   address?: string;
   /** ピン設置日時 */
