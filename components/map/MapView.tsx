@@ -3,9 +3,86 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { DEFAULT_MAP_STATE, Coordinate } from '@/lib/types';
+import { DEFAULT_MAP_STATE, Coordinate, POI, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from '@/lib/types';
+import { LayerToggleControl } from './LayerToggle';
 
 const LONG_PRESS_DURATION = 500; // ms
+const POI_SOURCE_ID = 'poi-source';
+const AED_LAYER_ID = 'aed-layer';
+const FIRE_HYDRANT_LAYER_ID = 'fire-hydrant-layer';
+
+// POIデータをGeoJSON形式に変換
+function createPOIGeoJSON(pois: POI[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: pois.map((poi) => ({
+      type: 'Feature' as const,
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [poi.coordinate.longitude, poi.coordinate.latitude],
+      },
+      properties: {
+        id: poi.id,
+        type: poi.type,
+        name: poi.name,
+      },
+    })),
+  };
+}
+
+// POIレイヤーをマップに追加
+function setupPOILayers(map: mapboxgl.Map, pois: POI[], layerVisibility: LayerVisibility): void {
+  // 既存のソースとレイヤーを削除
+  if (map.getLayer(AED_LAYER_ID)) {
+    map.removeLayer(AED_LAYER_ID);
+  }
+  if (map.getLayer(FIRE_HYDRANT_LAYER_ID)) {
+    map.removeLayer(FIRE_HYDRANT_LAYER_ID);
+  }
+  if (map.getSource(POI_SOURCE_ID)) {
+    map.removeSource(POI_SOURCE_ID);
+  }
+
+  // POIソースを追加
+  map.addSource(POI_SOURCE_ID, {
+    type: 'geojson',
+    data: createPOIGeoJSON(pois),
+  });
+
+  // AEDレイヤー（赤色）
+  map.addLayer({
+    id: AED_LAYER_ID,
+    type: 'circle',
+    source: POI_SOURCE_ID,
+    filter: ['==', ['get', 'type'], 'aed'],
+    paint: {
+      'circle-color': '#dc2626',
+      'circle-radius': 10,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+    },
+    layout: {
+      visibility: layerVisibility.aed ? 'visible' : 'none',
+    },
+  });
+
+  // 消火栓レイヤー（オレンジ色）
+  map.addLayer({
+    id: FIRE_HYDRANT_LAYER_ID,
+    type: 'circle',
+    source: POI_SOURCE_ID,
+    filter: ['==', ['get', 'type'], 'fireHydrant'],
+    paint: {
+      'circle-color': '#f59e0b',
+      'circle-radius': 10,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+    },
+    layout: {
+      visibility: layerVisibility.fireHydrant ? 'visible' : 'none',
+    },
+  });
+}
 
 const MAP_STYLES = {
   streets: 'mapbox://styles/mapbox/streets-v12',
@@ -99,15 +176,39 @@ interface MapViewProps {
   pinCoordinate?: Coordinate | null;
   flyToCoordinate?: Coordinate | null;
   flyToZoom?: number;
+  // POI関連
+  pois?: POI[];
+  selectedPoiId?: string | null;
+  layerVisibility?: LayerVisibility;
+  onPoiSelect?: (poi: POI) => void;
+  onLayerVisibilityChange?: (visibility: LayerVisibility) => void;
 }
 
-export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinate, flyToZoom = 16 }: MapViewProps) {
+export function MapView({
+  onMapReady,
+  onLongPress,
+  pinCoordinate,
+  flyToCoordinate,
+  flyToZoom = 16,
+  pois = [],
+  selectedPoiId,
+  layerVisibility = DEFAULT_LAYER_VISIBILITY,
+  onPoiSelect,
+  onLayerVisibilityChange,
+}: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const startPosition = useRef<{ x: number; y: number } | null>(null);
+  const layerToggleRef = useRef<LayerToggleControl | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
+
+  // 最新値を参照するためのref（useEffect依存配列を減らすため）
+  const poisRef = useRef<POI[]>(pois);
+  const layerVisibilityRef = useRef<LayerVisibility>(layerVisibility);
+  const onLayerVisibilityChangeRef = useRef(onLayerVisibilityChange);
+  const onPoiSelectRef = useRef(onPoiSelect);
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimer.current) {
@@ -116,6 +217,23 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
     }
     startPosition.current = null;
   }, []);
+
+  // refを最新値で更新
+  useEffect(() => {
+    poisRef.current = pois;
+  }, [pois]);
+
+  useEffect(() => {
+    layerVisibilityRef.current = layerVisibility;
+  }, [layerVisibility]);
+
+  useEffect(() => {
+    onLayerVisibilityChangeRef.current = onLayerVisibilityChange;
+  }, [onLayerVisibilityChange]);
+
+  useEffect(() => {
+    onPoiSelectRef.current = onPoiSelect;
+  }, [onPoiSelect]);
 
   const handleLongPressStart = useCallback(
     (e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
@@ -190,6 +308,58 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
       padding: { bottom: bottomPadding },
     });
   }, [flyToCoordinate, flyToZoom]);
+
+  // POIデータを更新
+  useEffect(() => {
+    if (!mapRef.current || !isMapReady) return;
+    const map = mapRef.current;
+
+    // スタイルが読み込まれていない場合はスキップ
+    if (!map.isStyleLoaded()) return;
+
+    const source = map.getSource(POI_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(createPOIGeoJSON(pois));
+    }
+  }, [pois, isMapReady]);
+
+  // レイヤー表示/非表示を更新
+  useEffect(() => {
+    if (!mapRef.current || !isMapReady) return;
+    const map = mapRef.current;
+
+    // スタイルが読み込まれていない場合はスキップ
+    if (!map.isStyleLoaded()) return;
+
+    if (map.getLayer(AED_LAYER_ID)) {
+      map.setLayoutProperty(
+        AED_LAYER_ID,
+        'visibility',
+        layerVisibility.aed ? 'visible' : 'none'
+      );
+    }
+    if (map.getLayer(FIRE_HYDRANT_LAYER_ID)) {
+      map.setLayoutProperty(
+        FIRE_HYDRANT_LAYER_ID,
+        'visibility',
+        layerVisibility.fireHydrant ? 'visible' : 'none'
+      );
+    }
+  }, [layerVisibility, isMapReady]);
+
+  // POIクリックハンドラ（ref経由で最新のpoisとonPoiSelectを参照）
+  const handlePOIClick = useCallback(
+    (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.GeoJSONFeature[] }) => {
+      if (!e.features || e.features.length === 0) return;
+      const feature = e.features[0];
+      const poiId = feature.properties?.id as string;
+      const poi = poisRef.current.find((p) => p.id === poiId);
+      if (poi && onPoiSelectRef.current) {
+        onPoiSelectRef.current(poi);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     // ========== パフォーマンス計測 ==========
@@ -292,6 +462,15 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
       'bottom-right'
     );
 
+    // レイヤー切り替えコントロールを追加（左上、検索バーの下に配置）
+    layerToggleRef.current = new LayerToggleControl(
+      layerVisibilityRef.current,
+      (newVisibility) => {
+        onLayerVisibilityChangeRef.current?.(newVisibility);
+      }
+    );
+    map.addControl(layerToggleRef.current, 'top-left');
+
     mapRef.current = map;
 
     // ========== イベントリスナー（計測用、once相当） ==========
@@ -332,10 +511,12 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
       console.error('[MapView] Mapbox error:', e.error);
     });
 
-    // スタイル変更時にも日本語ラベルを再適用
+    // スタイル変更時にも日本語ラベルとPOIレイヤーを再適用
     map.on('style.load', () => {
-      log('style.load - 日本語ラベル適用');
+      log('style.load - 日本語ラベル・POIレイヤー適用');
       applyJapaneseLabels(map);
+      // POIレイヤーを再セットアップ（スタイル変更でレイヤーが消えるため）
+      setupPOILayers(map, poisRef.current, layerVisibilityRef.current);
     });
 
     map.once('load', () => {
@@ -350,6 +531,28 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
       labelProcessingTime = performance.now() - labelStart;
       log('日本語ラベル処理完了', {
         processingTime: labelProcessingTime.toFixed(1) + 'ms',
+      });
+
+      // POIレイヤーをセットアップ
+      setupPOILayers(map, poisRef.current, layerVisibilityRef.current);
+
+      // POIクリックハンドラ（AED）
+      map.on('click', AED_LAYER_ID, handlePOIClick);
+      // POIクリックハンドラ（消火栓）
+      map.on('click', FIRE_HYDRANT_LAYER_ID, handlePOIClick);
+
+      // POIホバー時のカーソル変更
+      map.on('mouseenter', AED_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', AED_LAYER_ID, () => {
+        map.getCanvas().style.cursor = '';
+      });
+      map.on('mouseenter', FIRE_HYDRANT_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', FIRE_HYDRANT_LAYER_ID, () => {
+        map.getCanvas().style.cursor = '';
       });
 
       setIsMapReady(true);
@@ -387,7 +590,7 @@ export function MapView({ onMapReady, onLongPress, pinCoordinate, flyToCoordinat
       map.remove();
       mapRef.current = null;
     };
-  }, [onMapReady, handleLongPressStart, handleMove, clearLongPressTimer]);
+  }, [onMapReady, handleLongPressStart, handleMove, clearLongPressTimer, handlePOIClick]);
 
   return (
     <div className="w-full h-full min-h-[400px] relative">

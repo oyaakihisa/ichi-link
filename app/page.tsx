@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { SlidePanel } from "@/components/map/SlidePanel";
 
@@ -22,7 +22,8 @@ const MapView = dynamic(
 import { SearchBar } from "@/components/search/SearchBar";
 import { useConversion } from "@/components/hooks/useConversion";
 import { useMapInteraction } from "@/components/hooks/useMapInteraction";
-import { Coordinate } from "@/lib/types";
+import { Coordinate, POI, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from "@/lib/types";
+import { poiService } from "@/lib/services";
 
 export default function Home() {
   const { result, error, isLoading, convert, clear } = useConversion();
@@ -32,8 +33,33 @@ export default function Home() {
   // 変換結果パネルの開閉状態を追跡（結果がある間はデフォルトで開く）
   const [isConversionPanelClosed, setIsConversionPanelClosed] = useState(false);
 
+  // POI関連の状態
+  const [pois, setPois] = useState<POI[]>([]);
+  const [selectedPoi, setSelectedPoi] = useState<POI | null>(null);
+  const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>(DEFAULT_LAYER_VISIBILITY);
+  const [isPoiPanelOpen, setIsPoiPanelOpen] = useState(false);
+
   // 変換結果がある場合、ユーザーが閉じていなければパネルを開く
   const isConversionPanelOpen = result !== null && !isConversionPanelClosed;
+
+  // 初回マウント時にPOIデータを取得
+  useEffect(() => {
+    const loadPOIs = async () => {
+      // 東京駅周辺の広めのboundsでモックデータを取得
+      const bounds = {
+        north: 35.69,
+        south: 35.67,
+        east: 139.78,
+        west: 139.76,
+      };
+      const loadedPois = await poiService.getPOIs({
+        bounds,
+        types: ['aed', 'fireHydrant'],
+      });
+      setPois(loadedPois);
+    };
+    loadPOIs();
+  }, []);
 
   // flyTo座標は結果から直接導出
   const flyToCoordinate = useMemo<Coordinate | null>(() => {
@@ -43,9 +69,36 @@ export default function Home() {
     return null;
   }, [result, isConversionPanelClosed]);
 
-  // 検索バーからの変換処理
+  // POI選択ハンドラ（排他制御: アクティブピン・変換結果をクリア）
+  const handlePoiSelect = useCallback((poi: POI) => {
+    // 変換結果をクリア
+    clear();
+    setIsConversionPanelClosed(true);
+    // 長押しピンをクリア
+    closePanel();
+    clearPin();
+    // POIを選択
+    setSelectedPoi(poi);
+    setIsPoiPanelOpen(true);
+  }, [clear, closePanel, clearPin]);
+
+  // POIパネルを閉じる
+  const handleClosePoiPanel = useCallback(() => {
+    setIsPoiPanelOpen(false);
+    setSelectedPoi(null);
+  }, []);
+
+  // レイヤー表示切替ハンドラ
+  const handleLayerVisibilityChange = useCallback((visibility: LayerVisibility) => {
+    setLayerVisibility(visibility);
+  }, []);
+
+  // 検索バーからの変換処理（排他制御: POI選択をクリア）
   const handleConvert = useCallback(
     async (input: string, source: "address" | "wgs84" | "tokyo") => {
+      // POI選択をクリア
+      setSelectedPoi(null);
+      setIsPoiPanelOpen(false);
       // 長押しピンのパネルを閉じてピンをクリア
       closePanel();
       clearPin();
@@ -62,9 +115,13 @@ export default function Home() {
     setIsConversionPanelClosed(true);
   }, []);
 
-  // 長押しピンの処理（変換結果パネルを閉じる）
+  // 長押しピンの処理（排他制御: 変換結果・POI選択をクリア）
   const handleMapLongPress = useCallback(
     (coordinate: Coordinate) => {
+      // POI選択をクリア
+      setSelectedPoi(null);
+      setIsPoiPanelOpen(false);
+      // 変換結果パネルを閉じる
       setIsConversionPanelClosed(true);
       clear();
       handleLongPress(coordinate);
@@ -105,11 +162,16 @@ export default function Home() {
             onLongPress={handleMapLongPress}
             pinCoordinate={pinCoordinate}
             flyToCoordinate={flyToCoordinate}
+            pois={pois}
+            selectedPoiId={selectedPoi?.id}
+            layerVisibility={layerVisibility}
+            onPoiSelect={handlePoiSelect}
+            onLayerVisibilityChange={handleLayerVisibilityChange}
           />
         </div>
 
         {/* 変換結果用スライドパネル */}
-        {result && (
+        {result && !selectedPoi && (
           <SlidePanel
             conversionResult={result}
             isOpen={isConversionPanelOpen}
@@ -118,12 +180,21 @@ export default function Home() {
         )}
 
         {/* 長押しピン用スライドパネル */}
-        {pin && !result && (
+        {pin && !result && !selectedPoi && (
           <SlidePanel
             pin={pin}
             isLoadingAddress={isLoadingAddress}
             isOpen={isPanelOpen}
             onClose={closePanel}
+          />
+        )}
+
+        {/* POI詳細用スライドパネル */}
+        {selectedPoi && (
+          <SlidePanel
+            selectedPoi={selectedPoi}
+            isOpen={isPoiPanelOpen}
+            onClose={handleClosePoiPanel}
           />
         )}
       </main>

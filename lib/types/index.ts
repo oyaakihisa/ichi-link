@@ -27,3 +27,15 @@ export type {
   Tab,
 } from './map';
 export { DEFAULT_MAP_STATE, TABS } from './map';
+
+// POI関連
+export type {
+  POIType,
+  POI,
+  AEDDetail,
+  FireHydrantDetail,
+  LayerVisibility,
+  MapBounds,
+  POIQueryOptions,
+} from './poi';
+export { DEFAULT_LAYER_VISIBILITY } from './poi';

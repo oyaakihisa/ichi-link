@@ -10,3 +10,4 @@ export {
   type GeocodingResult,
   type GeocodingErrorCode,
 } from './GeocodingService';
+export { POIService, poiService } from './POIService';

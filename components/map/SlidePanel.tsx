@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { PinLocation, Coordinate, ConversionResult, Warning } from '@/lib/types';
+import { PinLocation, Coordinate, ConversionResult, Warning, POI } from '@/lib/types';
 import { CopyButton } from '@/components/common/CopyButton';
 import { WarningDisplay } from '@/components/result/WarningDisplay';
 import { MapButtons } from '@/components/result/MapButtons';
@@ -16,8 +16,8 @@ import {
 import { MapUrlGenerator } from '@/lib/services/MapUrlGenerator';
 import { useSyncExternalStore } from 'react';
 
-// 表示モード: 長押しピン or 変換結果
-type PanelMode = 'pin' | 'conversion';
+// 表示モード: 長押しピン or 変換結果 or POI詳細
+type PanelMode = 'pin' | 'conversion' | 'poi';
 
 interface SlidePanelProps {
   // 長押しピンモード用
@@ -25,6 +25,8 @@ interface SlidePanelProps {
   isLoadingAddress?: boolean;
   // 変換結果モード用
   conversionResult?: ConversionResult | null;
+  // POIモード用
+  selectedPoi?: POI | null;
   // 共通
   isOpen: boolean;
   onClose: () => void;
@@ -55,10 +57,24 @@ function getInputTypeLabel(inputSource: string): string {
   }
 }
 
+function getPOITypeBadge(type: string): { label: string; color: string; bgColor: string } {
+  switch (type) {
+    case 'aed':
+      return { label: 'AED', color: 'text-red-700', bgColor: 'bg-red-100' };
+    case 'fireHydrant':
+      return { label: '消火栓', color: 'text-orange-700', bgColor: 'bg-orange-100' };
+    case 'fireCistern':
+      return { label: '防火水槽', color: 'text-blue-700', bgColor: 'bg-blue-100' };
+    default:
+      return { label: 'POI', color: 'text-gray-700', bgColor: 'bg-gray-100' };
+  }
+}
+
 export function SlidePanel({
   pin,
   isLoadingAddress = false,
   conversionResult,
+  selectedPoi,
   isOpen,
   onClose,
 }: SlidePanelProps) {
@@ -77,17 +93,19 @@ export function SlidePanel({
     getServerSnapshot
   );
 
-  // 表示モードを判定
-  const mode: PanelMode = conversionResult ? 'conversion' : 'pin';
+  // 表示モードを判定（POI > 変換結果 > 長押しピン の優先順）
+  const mode: PanelMode = selectedPoi ? 'poi' : conversionResult ? 'conversion' : 'pin';
 
   // 座標データを取得
-  const wgs84Coord = conversionResult
-    ? conversionResult.coordinates.wgs84
-    : pin?.coordinate;
+  const wgs84Coord = selectedPoi
+    ? selectedPoi.coordinate
+    : conversionResult
+      ? conversionResult.coordinates.wgs84
+      : pin?.coordinate;
   const tokyoCoord = conversionResult
     ? conversionResult.coordinates.tokyo
     : pin?.tokyoCoordinate;
-  const address = conversionResult?.address || pin?.address;
+  const address = selectedPoi?.address || conversionResult?.address || pin?.address;
   const warnings: Warning[] = conversionResult?.warnings || [];
   const mapUrls = conversionResult?.mapUrls;
 
@@ -136,7 +154,9 @@ export function SlidePanel({
     }
   }, [wgs84Coord, tokyoCoord, googleMapsUrl, address]);
 
-  if (!wgs84Coord || !tokyoCoord) return null;
+  // POIモードではtokyoCoordは不要
+  if (!wgs84Coord) return null;
+  if (mode !== 'poi' && !tokyoCoord) return null;
 
   return (
     <>
@@ -184,6 +204,18 @@ export function SlidePanel({
             </div>
           )}
 
+          {/* POIモード: 名称とバッジ表示 */}
+          {mode === 'poi' && selectedPoi && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`px-2 py-0.5 text-xs font-medium rounded ${getPOITypeBadge(selectedPoi.type).bgColor} ${getPOITypeBadge(selectedPoi.type).color}`}>
+                  {getPOITypeBadge(selectedPoi.type).label}
+                </span>
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900">{selectedPoi.name}</h2>
+            </div>
+          )}
+
           {/* 警告表示 */}
           {warnings.length > 0 && (
             <div className="mb-4">
@@ -191,45 +223,47 @@ export function SlidePanel({
             </div>
           )}
 
-          {/* 共有ボタン・全部コピーボタン */}
-          <div className="flex gap-2 mb-4">
-            <button
-              onClick={handleLineShare}
-              className="flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors bg-[#06C755] hover:bg-[#05b04d]"
-            >
-              <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" aria-hidden="true">
-                <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.349 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314" />
-              </svg>
-              LINEで共有
-            </button>
-
-            {webShareSupported && (
+          {/* 共有ボタン・全部コピーボタン（変換結果・長押しピンモード） */}
+          {mode !== 'poi' && (
+            <div className="flex gap-2 mb-4">
               <button
-                onClick={handleWebShare}
-                className="flex items-center gap-2 px-4 py-2 text-gray-700 text-sm font-medium rounded-lg transition-colors bg-gray-200 hover:bg-gray-300"
+                onClick={handleLineShare}
+                className="flex items-center gap-2 px-4 py-2 text-white text-sm font-medium rounded-lg transition-colors bg-[#06C755] hover:bg-[#05b04d]"
               >
                 <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" aria-hidden="true">
-                  <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
+                  <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.349 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314" />
                 </svg>
-                共有
+                LINEで共有
               </button>
-            )}
 
-            {/* 全部コピーボタン（右端） */}
-            <button
-              onClick={handleCopyAll}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ml-auto ${
-                copyAllSuccess
-                  ? 'bg-green-100 text-green-700 border border-green-300'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              {copyAllSuccess ? 'コピーしました' : '全部コピー'}
-            </button>
-          </div>
+              {webShareSupported && (
+                <button
+                  onClick={handleWebShare}
+                  className="flex items-center gap-2 px-4 py-2 text-gray-700 text-sm font-medium rounded-lg transition-colors bg-gray-200 hover:bg-gray-300"
+                >
+                  <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" aria-hidden="true">
+                    <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
+                  </svg>
+                  共有
+                </button>
+              )}
+
+              {/* 全部コピーボタン（右端） */}
+              <button
+                onClick={handleCopyAll}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ml-auto ${
+                  copyAllSuccess
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                {copyAllSuccess ? 'コピーしました' : '全部コピー'}
+              </button>
+            </div>
+          )}
 
           {/* 住所 */}
           <div className="mb-4">
@@ -253,14 +287,62 @@ export function SlidePanel({
             <p className="mt-1 text-sm font-mono text-gray-900">{wgs84Text}</p>
           </div>
 
-          {/* Tokyo Datum座標 */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500 uppercase tracking-wide">旧日本測地系（Tokyo Datum）</span>
-              <CopyButton text={tokyoText} />
+          {/* Tokyo Datum座標（POIモード以外） */}
+          {mode !== 'poi' && tokyoCoord && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">旧日本測地系（Tokyo Datum）</span>
+                <CopyButton text={tokyoText} />
+              </div>
+              <p className="mt-1 text-sm font-mono text-gray-900">{tokyoText}</p>
             </div>
-            <p className="mt-1 text-sm font-mono text-gray-900">{tokyoText}</p>
-          </div>
+          )}
+
+          {/* POIモード: 詳細情報 */}
+          {mode === 'poi' && selectedPoi && (
+            <>
+              {/* 設置場所詳細 */}
+              {selectedPoi.detailText && (
+                <div className="mb-4">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">設置場所</span>
+                  <p className="mt-1 text-sm text-gray-900">{selectedPoi.detailText}</p>
+                </div>
+              )}
+
+              {/* 利用可能時間 */}
+              {selectedPoi.availabilityText && (
+                <div className="mb-4">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">利用可能時間</span>
+                  <p className="mt-1 text-sm text-gray-900">{selectedPoi.availabilityText}</p>
+                </div>
+              )}
+
+              {/* 消火栓の注記 */}
+              {selectedPoi.type === 'fireHydrant' && (
+                <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <p className="text-sm text-orange-800">
+                    利用可否は別途確認が必要です
+                  </p>
+                </div>
+              )}
+
+              {/* Google Mapsリンク */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Google Maps</span>
+                  <CopyButton text={googleMapsUrl} />
+                </div>
+                <a
+                  href={googleMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block text-sm text-blue-600 hover:text-blue-800 underline"
+                >
+                  Google Mapsで開く
+                </a>
+              </div>
+            </>
+          )}
 
           {/* 地図ボタン（変換結果モードのみ） */}
           {mode === 'conversion' && mapUrls && (
