@@ -271,9 +271,24 @@ export function MapView({
     (e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
       if (!onLongPress) return;
 
-      const point = 'touches' in e.originalEvent
-        ? { x: e.originalEvent.touches[0].clientX, y: e.originalEvent.touches[0].clientY }
-        : { x: (e.originalEvent as MouseEvent).clientX, y: (e.originalEvent as MouseEvent).clientY };
+      let point: { x: number; y: number };
+
+      if ('touches' in e.originalEvent && e.originalEvent.touches.length > 0) {
+        // タッチイベント（指が画面上にある場合のみ）
+        point = {
+          x: e.originalEvent.touches[0].clientX,
+          y: e.originalEvent.touches[0].clientY,
+        };
+      } else if ('clientX' in e.originalEvent) {
+        // マウスイベント
+        point = {
+          x: (e.originalEvent as MouseEvent).clientX,
+          y: (e.originalEvent as MouseEvent).clientY,
+        };
+      } else {
+        // どちらでもない場合は処理しない
+        return;
+      }
 
       startPosition.current = point;
 
@@ -292,9 +307,25 @@ export function MapView({
     (e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
       if (!startPosition.current) return;
 
-      const point = 'touches' in e.originalEvent
-        ? { x: e.originalEvent.touches[0].clientX, y: e.originalEvent.touches[0].clientY }
-        : { x: (e.originalEvent as MouseEvent).clientX, y: (e.originalEvent as MouseEvent).clientY };
+      let point: { x: number; y: number };
+
+      if ('touches' in e.originalEvent && e.originalEvent.touches.length > 0) {
+        // タッチイベント（指がまだ画面上にある場合のみ）
+        point = {
+          x: e.originalEvent.touches[0].clientX,
+          y: e.originalEvent.touches[0].clientY,
+        };
+      } else if ('clientX' in e.originalEvent) {
+        // マウスイベント
+        point = {
+          x: (e.originalEvent as MouseEvent).clientX,
+          y: (e.originalEvent as MouseEvent).clientY,
+        };
+      } else {
+        // どちらでもない場合（touchmove発火時にtouchesが空など）はキャンセル
+        clearLongPressTimer();
+        return;
+      }
 
       const dx = Math.abs(point.x - startPosition.current.x);
       const dy = Math.abs(point.y - startPosition.current.y);
