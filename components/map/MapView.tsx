@@ -274,6 +274,11 @@ export function MapView({
       let point: { x: number; y: number };
 
       if ('touches' in e.originalEvent && e.originalEvent.touches.length > 0) {
+        // マルチタッチ（ピンチ等）の場合は長押し判定しない
+        if (e.originalEvent.touches.length > 1) {
+          clearLongPressTimer();
+          return;
+        }
         // タッチイベント（指が画面上にある場合のみ）
         point = {
           x: e.originalEvent.touches[0].clientX,
@@ -310,6 +315,11 @@ export function MapView({
       let point: { x: number; y: number };
 
       if ('touches' in e.originalEvent && e.originalEvent.touches.length > 0) {
+        // マルチタッチ（ピンチ等）の場合は長押しをキャンセル
+        if (e.originalEvent.touches.length > 1) {
+          clearLongPressTimer();
+          return;
+        }
         // タッチイベント（指がまだ画面上にある場合のみ）
         point = {
           x: e.originalEvent.touches[0].clientX,
@@ -614,6 +624,7 @@ export function MapView({
     map.on('touchstart', handleLongPressStart);
     map.on('touchend', clearLongPressTimer);
     map.on('touchmove', handleMove);
+    map.on('touchcancel', clearLongPressTimer);
 
     // エラー時のログ出力
     map.on('error', (e) => {
