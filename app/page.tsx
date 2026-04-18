@@ -28,6 +28,7 @@ import {
   POIDetail,
   MapBounds,
   LayerVisibility,
+  AvailablePOITypes,
   DEFAULT_LAYER_VISIBILITY,
 } from "@/lib/types";
 import { poiService } from "@/lib/services";
@@ -129,6 +130,13 @@ export default function Home() {
     result,
     isConversionPanelClosed,
   ]);
+
+  // 利用可能なPOIタイプを計算（データが存在するタイプのみtrue）
+  const availablePOITypes = useMemo<AvailablePOITypes>(() => ({
+    aed: pois.some((p) => p.type === "aed"),
+    fireHydrant: pois.some((p) => p.type === "fireHydrant"),
+    fireCistern: pois.some((p) => p.type === "fireCistern"),
+  }), [pois]);
 
   // POI選択ハンドラ（排他制御: アクティブピン・変換結果をクリア）
   const handlePoiSelect = useCallback(
@@ -232,6 +240,7 @@ export default function Home() {
             pois={pois}
             selectedPoiId={selectedPoi?.id}
             layerVisibility={layerVisibility}
+            availablePOITypes={availablePOITypes}
             onPoiSelect={handlePoiSelect}
             onLayerVisibilityChange={handleLayerVisibilityChange}
             onMoveEnd={handleMoveEnd}

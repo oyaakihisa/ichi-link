@@ -1,22 +1,26 @@
 import mapboxgl from 'mapbox-gl';
-import type { LayerVisibility } from '@/lib/types';
+import type { LayerVisibility, AvailablePOITypes } from '@/lib/types';
 
 /**
  * レイヤー切替コントロール（Mapbox IControl実装）
- * AED/消火栓レイヤーの表示/非表示を切り替える
+ * AED/消火栓/防火水槽レイヤーの表示/非表示を切り替える
+ * 利用可能なPOIタイプのみ表示する
  */
 export class LayerToggleControl implements mapboxgl.IControl {
   private container: HTMLDivElement | null = null;
   private map: mapboxgl.Map | null = null;
   private visibility: LayerVisibility;
   private onChange: (visibility: LayerVisibility) => void;
+  private availableTypes: AvailablePOITypes;
 
   constructor(
     initialVisibility: LayerVisibility,
-    onChange: (visibility: LayerVisibility) => void
+    onChange: (visibility: LayerVisibility) => void,
+    availableTypes: AvailablePOITypes = { aed: true, fireHydrant: true, fireCistern: true }
   ) {
     this.visibility = { ...initialVisibility };
     this.onChange = onChange;
+    this.availableTypes = { ...availableTypes };
   }
 
   onAdd(map: mapboxgl.Map): HTMLDivElement {
@@ -31,41 +35,47 @@ export class LayerToggleControl implements mapboxgl.IControl {
       min-width: 100px;
     `;
 
-    // AEDトグル
-    const aedRow = this.createToggleRow(
-      'AED',
-      '#dc2626',
-      this.visibility.aed,
-      (checked) => {
-        this.visibility.aed = checked;
-        this.onChange({ ...this.visibility });
-      }
-    );
-    this.container.appendChild(aedRow);
+    // AEDトグル（データが存在する場合のみ表示）
+    if (this.availableTypes.aed) {
+      const aedRow = this.createToggleRow(
+        'AED',
+        '#dc2626',
+        this.visibility.aed,
+        (checked) => {
+          this.visibility.aed = checked;
+          this.onChange({ ...this.visibility });
+        }
+      );
+      this.container.appendChild(aedRow);
+    }
 
-    // 消火栓トグル
-    const hydrantRow = this.createToggleRow(
-      '消火栓',
-      '#f59e0b',
-      this.visibility.fireHydrant,
-      (checked) => {
-        this.visibility.fireHydrant = checked;
-        this.onChange({ ...this.visibility });
-      }
-    );
-    this.container.appendChild(hydrantRow);
+    // 消火栓トグル（データが存在する場合のみ表示）
+    if (this.availableTypes.fireHydrant) {
+      const hydrantRow = this.createToggleRow(
+        '消火栓',
+        '#f59e0b',
+        this.visibility.fireHydrant,
+        (checked) => {
+          this.visibility.fireHydrant = checked;
+          this.onChange({ ...this.visibility });
+        }
+      );
+      this.container.appendChild(hydrantRow);
+    }
 
-    // 防火水槽トグル
-    const cisternRow = this.createToggleRow(
-      '防火水槽',
-      '#2563eb',
-      this.visibility.fireCistern,
-      (checked) => {
-        this.visibility.fireCistern = checked;
-        this.onChange({ ...this.visibility });
-      }
-    );
-    this.container.appendChild(cisternRow);
+    // 防火水槽トグル（データが存在する場合のみ表示）
+    if (this.availableTypes.fireCistern) {
+      const cisternRow = this.createToggleRow(
+        '防火水槽',
+        '#2563eb',
+        this.visibility.fireCistern,
+        (checked) => {
+          this.visibility.fireCistern = checked;
+          this.onChange({ ...this.visibility });
+        }
+      );
+      this.container.appendChild(cisternRow);
+    }
 
     return this.container;
   }
@@ -163,5 +173,69 @@ export class LayerToggleControl implements mapboxgl.IControl {
   updateVisibility(visibility: LayerVisibility): void {
     this.visibility = { ...visibility };
     // DOM更新は再描画時に反映される
+  }
+
+  /**
+   * 利用可能なPOIタイプを更新し、UIを再構築
+   */
+  updateAvailableTypes(availableTypes: AvailablePOITypes): void {
+    // 変更がなければ何もしない
+    if (
+      this.availableTypes.aed === availableTypes.aed &&
+      this.availableTypes.fireHydrant === availableTypes.fireHydrant &&
+      this.availableTypes.fireCistern === availableTypes.fireCistern
+    ) {
+      return;
+    }
+
+    this.availableTypes = { ...availableTypes };
+
+    // コンテナが存在する場合、UIを再構築
+    if (this.container && this.map) {
+      // 既存の子要素をクリア
+      while (this.container.firstChild) {
+        this.container.removeChild(this.container.firstChild);
+      }
+
+      // トグル行を再構築
+      if (this.availableTypes.aed) {
+        const aedRow = this.createToggleRow(
+          'AED',
+          '#dc2626',
+          this.visibility.aed,
+          (checked) => {
+            this.visibility.aed = checked;
+            this.onChange({ ...this.visibility });
+          }
+        );
+        this.container.appendChild(aedRow);
+      }
+
+      if (this.availableTypes.fireHydrant) {
+        const hydrantRow = this.createToggleRow(
+          '消火栓',
+          '#f59e0b',
+          this.visibility.fireHydrant,
+          (checked) => {
+            this.visibility.fireHydrant = checked;
+            this.onChange({ ...this.visibility });
+          }
+        );
+        this.container.appendChild(hydrantRow);
+      }
+
+      if (this.availableTypes.fireCistern) {
+        const cisternRow = this.createToggleRow(
+          '防火水槽',
+          '#2563eb',
+          this.visibility.fireCistern,
+          (checked) => {
+            this.visibility.fireCistern = checked;
+            this.onChange({ ...this.visibility });
+          }
+        );
+        this.container.appendChild(cisternRow);
+      }
+    }
   }
 }

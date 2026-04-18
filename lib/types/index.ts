@@ -37,6 +37,7 @@ export type {
   AEDDetail,
   FireHydrantDetail,
   LayerVisibility,
+  AvailablePOITypes,
   MapBounds,
   POIQueryOptions,
 } from './poi';

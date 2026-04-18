@@ -113,6 +113,19 @@ export const DEFAULT_LAYER_VISIBILITY: LayerVisibility = {
 };
 
 /**
+ * 利用可能なPOIタイプ
+ * POIデータが存在するタイプのみtrueになる
+ */
+export interface AvailablePOITypes {
+  /** AEDデータが存在するか */
+  aed: boolean;
+  /** 消火栓データが存在するか */
+  fireHydrant: boolean;
+  /** 防火水槽データが存在するか */
+  fireCistern: boolean;
+}
+
+/**
  * 地図表示範囲
  */
 export interface MapBounds {

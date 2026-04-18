@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { DEFAULT_MAP_STATE, Coordinate, POIListItem, MapBounds, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from '@/lib/types';
+import { DEFAULT_MAP_STATE, Coordinate, POIListItem, MapBounds, LayerVisibility, AvailablePOITypes, DEFAULT_LAYER_VISIBILITY } from '@/lib/types';
 import { LayerToggleControl } from './LayerToggle';
 
 const LONG_PRESS_DURATION = 500; // ms
@@ -260,6 +260,7 @@ interface MapViewProps {
   pois?: POIListItem[];
   selectedPoiId?: string | null;
   layerVisibility?: LayerVisibility;
+  availablePOITypes?: AvailablePOITypes;
   onPoiSelect?: (poi: POIListItem) => void;
   onLayerVisibilityChange?: (visibility: LayerVisibility) => void;
   onMoveEnd?: (bounds: MapBounds) => void;
@@ -278,6 +279,7 @@ export function MapView({
   pois = [],
   selectedPoiId,
   layerVisibility = DEFAULT_LAYER_VISIBILITY,
+  availablePOITypes = { aed: true, fireHydrant: true, fireCistern: true },
   onPoiSelect,
   onLayerVisibilityChange,
   onMoveEnd,
@@ -296,6 +298,7 @@ export function MapView({
   // 最新値を参照するためのref（useEffect依存配列を減らすため）
   const poisRef = useRef<POIListItem[]>(pois);
   const layerVisibilityRef = useRef<LayerVisibility>(layerVisibility);
+  const availablePOITypesRef = useRef<AvailablePOITypes>(availablePOITypes);
   const onLayerVisibilityChangeRef = useRef(onLayerVisibilityChange);
   const onPoiSelectRef = useRef(onPoiSelect);
   const selectedPoiIdRef = useRef<string | null | undefined>(selectedPoiId);
@@ -317,6 +320,14 @@ export function MapView({
   useEffect(() => {
     layerVisibilityRef.current = layerVisibility;
   }, [layerVisibility]);
+
+  useEffect(() => {
+    availablePOITypesRef.current = availablePOITypes;
+    // LayerToggleを更新
+    if (layerToggleRef.current) {
+      layerToggleRef.current.updateAvailableTypes(availablePOITypes);
+    }
+  }, [availablePOITypes]);
 
   useEffect(() => {
     onLayerVisibilityChangeRef.current = onLayerVisibilityChange;
@@ -664,7 +675,8 @@ export function MapView({
       layerVisibilityRef.current,
       (newVisibility) => {
         onLayerVisibilityChangeRef.current?.(newVisibility);
-      }
+      },
+      availablePOITypesRef.current
     );
     map.addControl(layerToggleRef.current, 'bottom-left');
 
