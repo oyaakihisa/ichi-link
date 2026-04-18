@@ -581,14 +581,14 @@ export function MapView({
       'bottom-right'
     );
 
-    // レイヤー切り替えコントロールを追加（左上、検索バーの下に配置）
+    // レイヤー切り替えコントロールを追加（左下、Mapboxロゴの上に配置）
     layerToggleRef.current = new LayerToggleControl(
       layerVisibilityRef.current,
       (newVisibility) => {
         onLayerVisibilityChangeRef.current?.(newVisibility);
       }
     );
-    map.addControl(layerToggleRef.current, 'top-left');
+    map.addControl(layerToggleRef.current, 'bottom-left');
 
     mapRef.current = map;
 
