@@ -104,12 +104,12 @@ export interface LayerVisibility {
 
 /**
  * レイヤー表示状態の初期値
- * AED=ON（初見で価値が伝わりやすい）、消火栓・防火水槽=OFF（情報過多を避ける）
+ * 全レイヤーをデフォルトONにして、ユーザーが全ての情報を確認できるようにする
  */
 export const DEFAULT_LAYER_VISIBILITY: LayerVisibility = {
   aed: true,
-  fireHydrant: false,
-  fireCistern: false,
+  fireHydrant: true,
+  fireCistern: true,
 };
 
 /**
