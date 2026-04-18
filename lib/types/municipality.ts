@@ -157,10 +157,10 @@ export function toMunicipality(row: MunicipalityRow): Municipality {
       availableLayers: row.available_layers as POIType[],
     },
     seo: {
-      title: row.seo_title ?? `${row.municipality_name_ja} AED・消火栓マップ | ichi-link`,
+      title: row.seo_title ?? `${row.municipality_name_ja} 消防設備マップ | ichi-link`,
       description:
         row.seo_description ??
-        `${row.prefecture_name_ja}${row.municipality_name_ja}のAED・消火栓の位置情報マップ`,
+        `${row.prefecture_name_ja}${row.municipality_name_ja}の消防設備の位置情報マップ`,
       h1: row.seo_h1 ?? undefined,
       canonicalPath: `/maps/${row.prefecture_slug}/${row.municipality_slug}`,
     },

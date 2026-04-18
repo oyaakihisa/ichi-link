@@ -1,15 +1,24 @@
-'use client';
+"use client";
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import dynamic from 'next/dynamic';
-import { SlidePanel } from '@/components/map/SlidePanel';
-import type { Municipality, MunicipalityLayerStatus } from '@/lib/types/municipality';
-import type { Coordinate, POIListItem, POIDetail, MapBounds, LayerVisibility } from '@/lib/types';
-import { poiService } from '@/lib/services';
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
+import { SlidePanel } from "@/components/map/SlidePanel";
+import type {
+  Municipality,
+  MunicipalityLayerStatus,
+} from "@/lib/types/municipality";
+import type {
+  Coordinate,
+  POIListItem,
+  POIDetail,
+  MapBounds,
+  LayerVisibility,
+} from "@/lib/types";
+import { poiService } from "@/lib/services";
 
 // MapView を遅延ロード（mapbox-gl を初期バンドルから分離）
 const MapView = dynamic(
-  () => import('@/components/map/MapView').then((mod) => mod.MapView),
+  () => import("@/components/map/MapView").then((mod) => mod.MapView),
   {
     ssr: false,
     loading: () => (
@@ -20,7 +29,7 @@ const MapView = dynamic(
         </div>
       </div>
     ),
-  }
+  },
 );
 
 interface MunicipalityMapViewProps {
@@ -45,7 +54,7 @@ export function MunicipalityMapView({
       latitude: municipality.map.center.lat,
       longitude: municipality.map.center.lng,
     }),
-    [municipality.map.center.lat, municipality.map.center.lng]
+    [municipality.map.center.lat, municipality.map.center.lng],
   );
 
   const initialBounds = useMemo<MapBounds>(
@@ -55,28 +64,35 @@ export function MunicipalityMapView({
       east: municipality.map.bbox.east,
       west: municipality.map.bbox.west,
     }),
-    [municipality.map.bbox]
+    [municipality.map.bbox],
   );
 
   // defaultLayersからレイヤー表示状態を初期化
   const initialLayerVisibility = useMemo<LayerVisibility>(
     () => ({
-      aed: municipality.layers.defaultLayers.includes('aed'),
-      fireHydrant: municipality.layers.defaultLayers.includes('fireHydrant'),
-      fireCistern: municipality.layers.defaultLayers.includes('fireCistern'),
+      aed: municipality.layers.defaultLayers.includes("aed"),
+      fireHydrant: municipality.layers.defaultLayers.includes("fireHydrant"),
+      fireCistern: municipality.layers.defaultLayers.includes("fireCistern"),
     }),
-    [municipality.layers.defaultLayers]
+    [municipality.layers.defaultLayers],
   );
 
   // POI関連の状態
   const [pois, setPois] = useState<POIListItem[]>([]);
   const [selectedPoi, setSelectedPoi] = useState<POIListItem | null>(null);
-  const [selectedPoiDetail, setSelectedPoiDetail] = useState<POIDetail | null>(null);
-  const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>(initialLayerVisibility);
+  const [selectedPoiDetail, setSelectedPoiDetail] = useState<POIDetail | null>(
+    null,
+  );
+  const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>(
+    initialLayerVisibility,
+  );
   const [isPoiPanelOpen, setIsPoiPanelOpen] = useState(false);
 
   // 長押しピン関連
-  const [pin, setPin] = useState<{ coordinate: Coordinate; address?: string } | null>(null);
+  const [pin, setPin] = useState<{
+    coordinate: Coordinate;
+    address?: string;
+  } | null>(null);
   const [isPinPanelOpen, setIsPinPanelOpen] = useState(false);
 
   // デバウンス用のタイマー
@@ -91,10 +107,10 @@ export function MunicipalityMapView({
     isInitialFetchDone.current = true;
 
     const fetchInitialPois = async () => {
-      const types: Array<'aed' | 'fireHydrant' | 'fireCistern'> = [];
-      if (layerVisibility.aed) types.push('aed');
-      if (layerVisibility.fireHydrant) types.push('fireHydrant');
-      if (layerVisibility.fireCistern) types.push('fireCistern');
+      const types: Array<"aed" | "fireHydrant" | "fireCistern"> = [];
+      if (layerVisibility.aed) types.push("aed");
+      if (layerVisibility.fireHydrant) types.push("fireHydrant");
+      if (layerVisibility.fireCistern) types.push("fireCistern");
 
       if (types.length === 0) {
         return;
@@ -120,10 +136,10 @@ export function MunicipalityMapView({
 
       // 300msデバウンス
       debounceTimerRef.current = setTimeout(async () => {
-        const types: Array<'aed' | 'fireHydrant' | 'fireCistern'> = [];
-        if (layerVisibility.aed) types.push('aed');
-        if (layerVisibility.fireHydrant) types.push('fireHydrant');
-        if (layerVisibility.fireCistern) types.push('fireCistern');
+        const types: Array<"aed" | "fireHydrant" | "fireCistern"> = [];
+        if (layerVisibility.aed) types.push("aed");
+        if (layerVisibility.fireHydrant) types.push("fireHydrant");
+        if (layerVisibility.fireCistern) types.push("fireCistern");
 
         if (types.length === 0) {
           setPois([]);
@@ -137,7 +153,7 @@ export function MunicipalityMapView({
         setPois(loadedPois);
       }, 300);
     },
-    [layerVisibility]
+    [layerVisibility],
   );
 
   // コンポーネントアンマウント時にタイマーをクリア
@@ -152,7 +168,10 @@ export function MunicipalityMapView({
   // flyTo座標はPOI選択・長押しピンから導出
   const flyToCoordinate = useMemo<Coordinate | null>(() => {
     if (selectedPoi && isPoiPanelOpen) {
-      return { latitude: selectedPoi.latitude, longitude: selectedPoi.longitude };
+      return {
+        latitude: selectedPoi.latitude,
+        longitude: selectedPoi.longitude,
+      };
     }
     if (pin && isPinPanelOpen) {
       return pin.coordinate;
@@ -185,9 +204,12 @@ export function MunicipalityMapView({
   }, []);
 
   // レイヤー表示切替ハンドラ
-  const handleLayerVisibilityChange = useCallback((visibility: LayerVisibility) => {
-    setLayerVisibility(visibility);
-  }, []);
+  const handleLayerVisibilityChange = useCallback(
+    (visibility: LayerVisibility) => {
+      setLayerVisibility(visibility);
+    },
+    [],
+  );
 
   // 長押しハンドラ
   const handleLongPress = useCallback((coordinate: Coordinate) => {
@@ -222,13 +244,14 @@ export function MunicipalityMapView({
       <header className="bg-white shadow-sm z-20 relative">
         <div className="max-w-4xl mx-auto px-4 py-3">
           <h1 className="text-lg font-bold text-gray-900">
-            {municipality.seo.h1 || `${municipality.municipalityNameJa} AED・消火栓マップ`}
+            {municipality.seo.h1 ||
+              `${municipality.municipalityNameJa} 消防設備マップ`}
           </h1>
           <p className="text-xs text-gray-500">
             {municipality.prefectureNameJa} {municipality.municipalityNameJa}
             {lastUpdatedAt && (
               <span className="ml-2">
-                最終更新: {lastUpdatedAt.toLocaleDateString('ja-JP')}
+                最終更新: {lastUpdatedAt.toLocaleDateString("ja-JP")}
               </span>
             )}
           </p>
@@ -241,7 +264,9 @@ export function MunicipalityMapView({
         {municipality.content.introText && (
           <div className="absolute top-4 left-4 right-4 z-10 max-w-xl mx-auto">
             <div className="bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-sm">
-              <p className="text-sm text-gray-700">{municipality.content.introText}</p>
+              <p className="text-sm text-gray-700">
+                {municipality.content.introText}
+              </p>
             </div>
           </div>
         )}
@@ -288,7 +313,9 @@ export function MunicipalityMapView({
       {municipality.content.cautionText && (
         <footer className="bg-amber-50 border-t border-amber-200 z-20 relative">
           <div className="max-w-4xl mx-auto px-4 py-2">
-            <p className="text-xs text-amber-800">{municipality.content.cautionText}</p>
+            <p className="text-xs text-amber-800">
+              {municipality.content.cautionText}
+            </p>
           </div>
         </footer>
       )}
