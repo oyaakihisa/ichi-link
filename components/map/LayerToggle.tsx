@@ -55,6 +55,18 @@ export class LayerToggleControl implements mapboxgl.IControl {
     );
     this.container.appendChild(hydrantRow);
 
+    // 防火水槽トグル
+    const cisternRow = this.createToggleRow(
+      '防火水槽',
+      '#2563eb',
+      this.visibility.fireCistern,
+      (checked) => {
+        this.visibility.fireCistern = checked;
+        this.onChange({ ...this.visibility });
+      }
+    );
+    this.container.appendChild(cisternRow);
+
     return this.container;
   }
 

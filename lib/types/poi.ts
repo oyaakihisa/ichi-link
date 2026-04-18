@@ -98,15 +98,18 @@ export interface LayerVisibility {
   aed: boolean;
   /** 消火栓レイヤー表示 */
   fireHydrant: boolean;
+  /** 防火水槽レイヤー表示 */
+  fireCistern: boolean;
 }
 
 /**
  * レイヤー表示状態の初期値
- * AED=ON（初見で価値が伝わりやすい）、消火栓=OFF（情報過多を避ける）
+ * AED=ON（初見で価値が伝わりやすい）、消火栓・防火水槽=OFF（情報過多を避ける）
  */
 export const DEFAULT_LAYER_VISIBILITY: LayerVisibility = {
   aed: true,
   fireHydrant: false,
+  fireCistern: false,
 };
 
 /**

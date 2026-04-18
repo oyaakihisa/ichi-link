@@ -74,9 +74,10 @@ export default function Home() {
       // 300msデバウンス
       debounceTimerRef.current = setTimeout(async () => {
         // 現在有効なレイヤーのPOI種別を取得
-        const types: Array<"aed" | "fireHydrant"> = [];
+        const types: Array<"aed" | "fireHydrant" | "fireCistern"> = [];
         if (layerVisibility.aed) types.push("aed");
         if (layerVisibility.fireHydrant) types.push("fireHydrant");
+        if (layerVisibility.fireCistern) types.push("fireCistern");
 
         if (types.length === 0) {
           setPois([]);

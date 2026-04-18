@@ -63,6 +63,7 @@ export function MunicipalityMapView({
     () => ({
       aed: municipality.layers.defaultLayers.includes('aed'),
       fireHydrant: municipality.layers.defaultLayers.includes('fireHydrant'),
+      fireCistern: municipality.layers.defaultLayers.includes('fireCistern'),
     }),
     [municipality.layers.defaultLayers]
   );
@@ -90,9 +91,10 @@ export function MunicipalityMapView({
     isInitialFetchDone.current = true;
 
     const fetchInitialPois = async () => {
-      const types: Array<'aed' | 'fireHydrant'> = [];
+      const types: Array<'aed' | 'fireHydrant' | 'fireCistern'> = [];
       if (layerVisibility.aed) types.push('aed');
       if (layerVisibility.fireHydrant) types.push('fireHydrant');
+      if (layerVisibility.fireCistern) types.push('fireCistern');
 
       if (types.length === 0) {
         return;
@@ -118,9 +120,10 @@ export function MunicipalityMapView({
 
       // 300msデバウンス
       debounceTimerRef.current = setTimeout(async () => {
-        const types: Array<'aed' | 'fireHydrant'> = [];
+        const types: Array<'aed' | 'fireHydrant' | 'fireCistern'> = [];
         if (layerVisibility.aed) types.push('aed');
         if (layerVisibility.fireHydrant) types.push('fireHydrant');
+        if (layerVisibility.fireCistern) types.push('fireCistern');
 
         if (types.length === 0) {
           setPois([]);

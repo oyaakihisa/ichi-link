@@ -10,6 +10,9 @@ const LONG_PRESS_DURATION = 500; // ms
 const POI_SOURCE_ID = 'poi-source';
 const AED_LAYER_ID = 'aed-layer';
 const FIRE_HYDRANT_LAYER_ID = 'fire-hydrant-layer';
+const FIRE_CISTERN_LAYER_ID = 'fire-cistern-layer';
+const CLUSTER_CIRCLE_LAYER_ID = 'cluster-circle-layer';
+const CLUSTER_COUNT_LAYER_ID = 'cluster-count-layer';
 
 // POIデータをGeoJSON形式に変換
 function createPOIGeoJSON(pois: POIListItem[]): GeoJSON.FeatureCollection {
@@ -38,11 +41,20 @@ function setupPOILayers(
   selectedPoiId?: string | null
 ): void {
   // 既存のソースとレイヤーを削除
+  if (map.getLayer(CLUSTER_COUNT_LAYER_ID)) {
+    map.removeLayer(CLUSTER_COUNT_LAYER_ID);
+  }
+  if (map.getLayer(CLUSTER_CIRCLE_LAYER_ID)) {
+    map.removeLayer(CLUSTER_CIRCLE_LAYER_ID);
+  }
   if (map.getLayer(AED_LAYER_ID)) {
     map.removeLayer(AED_LAYER_ID);
   }
   if (map.getLayer(FIRE_HYDRANT_LAYER_ID)) {
     map.removeLayer(FIRE_HYDRANT_LAYER_ID);
+  }
+  if (map.getLayer(FIRE_CISTERN_LAYER_ID)) {
+    map.removeLayer(FIRE_CISTERN_LAYER_ID);
   }
   if (map.getSource(POI_SOURCE_ID)) {
     map.removeSource(POI_SOURCE_ID);
@@ -56,18 +68,21 @@ function setupPOILayers(
     ? (['case', ['==', ['get', 'id'], selectedPoiId], 4, 2] as mapboxgl.ExpressionSpecification)
     : 2;
 
-  // POIソースを追加
+  // POIソースを追加（クラスタリング有効）
   map.addSource(POI_SOURCE_ID, {
     type: 'geojson',
     data: createPOIGeoJSON(pois),
+    cluster: true,
+    clusterMaxZoom: 12,
+    clusterRadius: 50,
   });
 
-  // AEDレイヤー（赤色）
+  // AEDレイヤー（赤色）- 非クラスタPOIのみ
   map.addLayer({
     id: AED_LAYER_ID,
     type: 'circle',
     source: POI_SOURCE_ID,
-    filter: ['==', ['get', 'type'], 'aed'],
+    filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'aed']],
     paint: {
       'circle-color': '#dc2626',
       'circle-radius': radiusValue,
@@ -79,12 +94,12 @@ function setupPOILayers(
     },
   });
 
-  // 消火栓レイヤー（オレンジ色）
+  // 消火栓レイヤー（オレンジ色）- 非クラスタPOIのみ
   map.addLayer({
     id: FIRE_HYDRANT_LAYER_ID,
     type: 'circle',
     source: POI_SOURCE_ID,
-    filter: ['==', ['get', 'type'], 'fireHydrant'],
+    filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'fireHydrant']],
     paint: {
       'circle-color': '#f59e0b',
       'circle-radius': radiusValue,
@@ -93,6 +108,58 @@ function setupPOILayers(
     },
     layout: {
       visibility: layerVisibility.fireHydrant ? 'visible' : 'none',
+    },
+  });
+
+  // 防火水槽レイヤー（青色）- 非クラスタPOIのみ
+  map.addLayer({
+    id: FIRE_CISTERN_LAYER_ID,
+    type: 'circle',
+    source: POI_SOURCE_ID,
+    filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'fireCistern']],
+    paint: {
+      'circle-color': '#2563eb',
+      'circle-radius': radiusValue,
+      'circle-stroke-width': strokeWidthValue,
+      'circle-stroke-color': '#ffffff',
+    },
+    layout: {
+      visibility: layerVisibility.fireCistern ? 'visible' : 'none',
+    },
+  });
+
+  // クラスタ円レイヤー
+  map.addLayer({
+    id: CLUSTER_CIRCLE_LAYER_ID,
+    type: 'circle',
+    source: POI_SOURCE_ID,
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': '#51bbd6',
+      'circle-radius': [
+        'step',
+        ['get', 'point_count'],
+        20,   // デフォルト（〜10件）
+        10, 25,  // 10件以上
+        50, 30,  // 50件以上
+      ],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+    },
+  });
+
+  // クラスタ件数テキストレイヤー
+  map.addLayer({
+    id: CLUSTER_COUNT_LAYER_ID,
+    type: 'symbol',
+    source: POI_SOURCE_ID,
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': ['get', 'point_count_abbreviated'],
+      'text-size': 12,
+    },
+    paint: {
+      'text-color': '#ffffff',
     },
   });
 }
@@ -418,6 +485,13 @@ export function MapView({
         layerVisibility.fireHydrant ? 'visible' : 'none'
       );
     }
+    if (map.getLayer(FIRE_CISTERN_LAYER_ID)) {
+      map.setLayoutProperty(
+        FIRE_CISTERN_LAYER_ID,
+        'visibility',
+        layerVisibility.fireCistern ? 'visible' : 'none'
+      );
+    }
   }, [layerVisibility, isMapReady]);
 
   // POIハイライト表示を更新
@@ -444,6 +518,10 @@ export function MapView({
     if (map.getLayer(FIRE_HYDRANT_LAYER_ID)) {
       map.setPaintProperty(FIRE_HYDRANT_LAYER_ID, 'circle-radius', radiusValue);
       map.setPaintProperty(FIRE_HYDRANT_LAYER_ID, 'circle-stroke-width', strokeWidthValue);
+    }
+    if (map.getLayer(FIRE_CISTERN_LAYER_ID)) {
+      map.setPaintProperty(FIRE_CISTERN_LAYER_ID, 'circle-radius', radiusValue);
+      map.setPaintProperty(FIRE_CISTERN_LAYER_ID, 'circle-stroke-width', strokeWidthValue);
     }
   }, [selectedPoiId, isMapReady]);
 
@@ -660,6 +738,31 @@ export function MapView({
       map.on('click', AED_LAYER_ID, handlePOIClick);
       // POIクリックハンドラ（消火栓）
       map.on('click', FIRE_HYDRANT_LAYER_ID, handlePOIClick);
+      // POIクリックハンドラ（防火水槽）
+      map.on('click', FIRE_CISTERN_LAYER_ID, handlePOIClick);
+
+      // クラスタクリックハンドラ（クリックでズームイン）
+      map.on('click', CLUSTER_CIRCLE_LAYER_ID, (e) => {
+        const features = map.queryRenderedFeatures(e.point, {
+          layers: [CLUSTER_CIRCLE_LAYER_ID],
+        });
+        if (!features.length) return;
+        const clusterId = features[0].properties?.cluster_id;
+        if (clusterId === undefined) return;
+        const source = map.getSource(POI_SOURCE_ID) as mapboxgl.GeoJSONSource;
+        source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+          if (err) {
+            console.error('Error getting cluster expansion zoom:', err);
+            return;
+          }
+          const geometry = features[0].geometry;
+          if (geometry.type !== 'Point') return;
+          map.easeTo({
+            center: geometry.coordinates as [number, number],
+            zoom: zoom ?? 13,
+          });
+        });
+      });
 
       // POIホバー時のカーソル変更
       map.on('mouseenter', AED_LAYER_ID, () => {
@@ -672,6 +775,19 @@ export function MapView({
         map.getCanvas().style.cursor = 'pointer';
       });
       map.on('mouseleave', FIRE_HYDRANT_LAYER_ID, () => {
+        map.getCanvas().style.cursor = '';
+      });
+      map.on('mouseenter', FIRE_CISTERN_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', FIRE_CISTERN_LAYER_ID, () => {
+        map.getCanvas().style.cursor = '';
+      });
+      // クラスタホバー時のカーソル変更
+      map.on('mouseenter', CLUSTER_CIRCLE_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', CLUSTER_CIRCLE_LAYER_ID, () => {
         map.getCanvas().style.cursor = '';
       });
 
