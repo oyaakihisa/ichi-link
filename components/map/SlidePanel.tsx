@@ -239,7 +239,7 @@ export function SlidePanel({
           </svg>
         </button>
 
-        <div className="px-4 pb-6 pt-2 max-h-[70vh] overflow-y-auto">
+        <div className="px-4 pb-6 pt-2 max-h-[50vh] overflow-y-auto">
           {/* 変換結果モード: 判定結果表示 */}
           {mode === "conversion" && conversionResult && (
             <div className="mb-4 p-3 bg-blue-50 rounded-lg">

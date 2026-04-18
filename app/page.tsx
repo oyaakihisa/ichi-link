@@ -17,18 +17,31 @@ const MapView = dynamic(
         </div>
       </div>
     ),
-  }
+  },
 );
 import { SearchBar } from "@/components/search/SearchBar";
 import { useConversion } from "@/components/hooks/useConversion";
 import { useMapInteraction } from "@/components/hooks/useMapInteraction";
-import { Coordinate, POIListItem, POIDetail, MapBounds, LayerVisibility, DEFAULT_LAYER_VISIBILITY } from "@/lib/types";
+import {
+  Coordinate,
+  POIListItem,
+  POIDetail,
+  MapBounds,
+  LayerVisibility,
+  DEFAULT_LAYER_VISIBILITY,
+} from "@/lib/types";
 import { poiService } from "@/lib/services";
 
 export default function Home() {
   const { result, error, isLoading, convert, clear } = useConversion();
-  const { pin, isPanelOpen, isLoadingAddress, handleLongPress, closePanel, clearPin } =
-    useMapInteraction();
+  const {
+    pin,
+    isPanelOpen,
+    isLoadingAddress,
+    handleLongPress,
+    closePanel,
+    clearPin,
+  } = useMapInteraction();
 
   // 変換結果パネルの開閉状態を追跡（結果がある間はデフォルトで開く）
   const [isConversionPanelClosed, setIsConversionPanelClosed] = useState(false);
@@ -36,8 +49,12 @@ export default function Home() {
   // POI関連の状態
   const [pois, setPois] = useState<POIListItem[]>([]);
   const [selectedPoi, setSelectedPoi] = useState<POIListItem | null>(null);
-  const [selectedPoiDetail, setSelectedPoiDetail] = useState<POIDetail | null>(null);
-  const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>(DEFAULT_LAYER_VISIBILITY);
+  const [selectedPoiDetail, setSelectedPoiDetail] = useState<POIDetail | null>(
+    null,
+  );
+  const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>(
+    DEFAULT_LAYER_VISIBILITY,
+  );
   const [isPoiPanelOpen, setIsPoiPanelOpen] = useState(false);
 
   // デバウンス用のタイマー
@@ -47,31 +64,34 @@ export default function Home() {
   const isConversionPanelOpen = result !== null && !isConversionPanelClosed;
 
   // マップビューポート変更時にPOIを再取得（デバウンス300ms）
-  const handleMoveEnd = useCallback((bounds: MapBounds) => {
-    // 既存のタイマーをクリア
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-
-    // 300msデバウンス
-    debounceTimerRef.current = setTimeout(async () => {
-      // 現在有効なレイヤーのPOI種別を取得
-      const types: Array<'aed' | 'fireHydrant'> = [];
-      if (layerVisibility.aed) types.push('aed');
-      if (layerVisibility.fireHydrant) types.push('fireHydrant');
-
-      if (types.length === 0) {
-        setPois([]);
-        return;
+  const handleMoveEnd = useCallback(
+    (bounds: MapBounds) => {
+      // 既存のタイマーをクリア
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
       }
 
-      const loadedPois = await poiService.getPOIs({
-        bounds,
-        types,
-      });
-      setPois(loadedPois);
-    }, 300);
-  }, [layerVisibility]);
+      // 300msデバウンス
+      debounceTimerRef.current = setTimeout(async () => {
+        // 現在有効なレイヤーのPOI種別を取得
+        const types: Array<"aed" | "fireHydrant"> = [];
+        if (layerVisibility.aed) types.push("aed");
+        if (layerVisibility.fireHydrant) types.push("fireHydrant");
+
+        if (types.length === 0) {
+          setPois([]);
+          return;
+        }
+
+        const loadedPois = await poiService.getPOIs({
+          bounds,
+          types,
+        });
+        setPois(loadedPois);
+      }, 300);
+    },
+    [layerVisibility],
+  );
 
   // コンポーネントアンマウント時にタイマーをクリア
   useEffect(() => {
@@ -86,7 +106,10 @@ export default function Home() {
   const flyToCoordinate = useMemo<Coordinate | null>(() => {
     // POI選択時
     if (selectedPoi && isPoiPanelOpen) {
-      return { latitude: selectedPoi.latitude, longitude: selectedPoi.longitude };
+      return {
+        latitude: selectedPoi.latitude,
+        longitude: selectedPoi.longitude,
+      };
     }
     // 長押しピン時
     if (pin && isPanelOpen) {
@@ -97,27 +120,37 @@ export default function Home() {
       return result.coordinates.wgs84;
     }
     return null;
-  }, [selectedPoi, isPoiPanelOpen, pin, isPanelOpen, result, isConversionPanelClosed]);
+  }, [
+    selectedPoi,
+    isPoiPanelOpen,
+    pin,
+    isPanelOpen,
+    result,
+    isConversionPanelClosed,
+  ]);
 
   // POI選択ハンドラ（排他制御: アクティブピン・変換結果をクリア）
-  const handlePoiSelect = useCallback(async (poi: POIListItem) => {
-    // 変換結果をクリア
-    clear();
-    setIsConversionPanelClosed(true);
-    // 長押しピンをクリア
-    closePanel();
-    clearPin();
-    // POIを選択（一覧データでパネルを即座に表示）
-    setSelectedPoi(poi);
-    setSelectedPoiDetail(null); // 詳細は後で取得
-    setIsPoiPanelOpen(true);
+  const handlePoiSelect = useCallback(
+    async (poi: POIListItem) => {
+      // 変換結果をクリア
+      clear();
+      setIsConversionPanelClosed(true);
+      // 長押しピンをクリア
+      closePanel();
+      clearPin();
+      // POIを選択（一覧データでパネルを即座に表示）
+      setSelectedPoi(poi);
+      setSelectedPoiDetail(null); // 詳細は後で取得
+      setIsPoiPanelOpen(true);
 
-    // バックグラウンドで詳細を取得
-    const detail = await poiService.getPOIDetail(poi.id);
-    if (detail) {
-      setSelectedPoiDetail(detail);
-    }
-  }, [clear, closePanel, clearPin]);
+      // バックグラウンドで詳細を取得
+      const detail = await poiService.getPOIDetail(poi.id);
+      if (detail) {
+        setSelectedPoiDetail(detail);
+      }
+    },
+    [clear, closePanel, clearPin],
+  );
 
   // POIパネルを閉じる
   const handleClosePoiPanel = useCallback(() => {
@@ -127,9 +160,12 @@ export default function Home() {
   }, []);
 
   // レイヤー表示切替ハンドラ
-  const handleLayerVisibilityChange = useCallback((visibility: LayerVisibility) => {
-    setLayerVisibility(visibility);
-  }, []);
+  const handleLayerVisibilityChange = useCallback(
+    (visibility: LayerVisibility) => {
+      setLayerVisibility(visibility);
+    },
+    [],
+  );
 
   // 検索バーからの変換処理（排他制御: POI選択をクリア）
   const handleConvert = useCallback(
@@ -145,7 +181,7 @@ export default function Home() {
 
       await convert(input, source);
     },
-    [convert, closePanel, clearPin]
+    [convert, closePanel, clearPin],
   );
 
   // 変換パネルを閉じる
@@ -164,26 +200,18 @@ export default function Home() {
       clear();
       handleLongPress(coordinate);
     },
-    [handleLongPress, clear]
+    [handleLongPress, clear],
   );
 
   // ピンの座標を決定
   const pinCoordinate = result?.coordinates.wgs84 || pin?.coordinate || null;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* ヘッダー */}
-      <header className="bg-white shadow-sm z-20 relative">
-        <div className="max-w-4xl mx-auto px-4 py-3">
-          <h1 className="text-lg font-bold text-gray-900">ichi-link</h1>
-          <p className="text-xs text-gray-500">位置情報変換ツール</p>
-        </div>
-      </header>
-
+    <div className="min-h-screen bg-gray-50">
       {/* メインコンテンツ */}
-      <main className="flex-1 relative">
+      <main className="h-screen relative">
         {/* フローティング検索バー */}
-        <div className="absolute top-4 left-4 right-4 z-10 max-w-xl mx-auto">
+        <div className="absolute top-2 left-2 right-2 z-10 max-w-xl mx-auto">
           <SearchBar onConvert={handleConvert} isLoading={isLoading} />
 
           {/* エラー表示 */}
