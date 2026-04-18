@@ -3,10 +3,9 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { SlidePanel } from "@/components/map/SlidePanel";
-import type {
-  Municipality,
-  MunicipalityLayerStatus,
-} from "@/lib/types/municipality";
+import { SearchBar } from "@/components/search/SearchBar";
+import { useConversion } from "@/components/hooks/useConversion";
+import type { Municipality } from "@/lib/types/municipality";
 import type {
   Coordinate,
   POIListItem,
@@ -34,7 +33,6 @@ const MapView = dynamic(
 
 interface MunicipalityMapViewProps {
   municipality: Municipality;
-  layerStatuses: MunicipalityLayerStatus[];
 }
 
 /**
@@ -46,8 +44,16 @@ interface MunicipalityMapViewProps {
  */
 export function MunicipalityMapView({
   municipality,
-  layerStatuses,
 }: MunicipalityMapViewProps) {
+  // 座標変換フック
+  const { result, error, isLoading, convert, clear } = useConversion();
+
+  // 変換結果パネルの開閉状態を追跡（結果がある間はデフォルトで開く）
+  const [isConversionPanelClosed, setIsConversionPanelClosed] = useState(false);
+
+  // 変換結果がある場合、ユーザーが閉じていなければパネルを開く
+  const isConversionPanelOpen = result !== null && !isConversionPanelClosed;
+
   // 市町村マスタから初期状態を設定
   const initialCenter = useMemo<Coordinate>(
     () => ({
@@ -165,36 +171,48 @@ export function MunicipalityMapView({
     };
   }, []);
 
-  // flyTo座標はPOI選択・長押しピンから導出
+  // flyTo座標はPOI選択・長押しピン・変換結果から導出
   const flyToCoordinate = useMemo<Coordinate | null>(() => {
+    // POI選択時
     if (selectedPoi && isPoiPanelOpen) {
       return {
         latitude: selectedPoi.latitude,
         longitude: selectedPoi.longitude,
       };
     }
+    // 長押しピン時
     if (pin && isPinPanelOpen) {
       return pin.coordinate;
     }
-    return null;
-  }, [selectedPoi, isPoiPanelOpen, pin, isPinPanelOpen]);
-
-  // POI選択ハンドラ
-  const handlePoiSelect = useCallback(async (poi: POIListItem) => {
-    // 長押しピンをクリア
-    setPin(null);
-    setIsPinPanelOpen(false);
-    // POIを選択
-    setSelectedPoi(poi);
-    setSelectedPoiDetail(null);
-    setIsPoiPanelOpen(true);
-
-    // バックグラウンドで詳細を取得
-    const detail = await poiService.getPOIDetail(poi.id);
-    if (detail) {
-      setSelectedPoiDetail(detail);
+    // 変換結果時
+    if (result && !isConversionPanelClosed) {
+      return result.coordinates.wgs84;
     }
-  }, []);
+    return null;
+  }, [selectedPoi, isPoiPanelOpen, pin, isPinPanelOpen, result, isConversionPanelClosed]);
+
+  // POI選択ハンドラ（排他制御: 変換結果・ピンをクリア）
+  const handlePoiSelect = useCallback(
+    async (poi: POIListItem) => {
+      // 変換結果をクリア
+      clear();
+      setIsConversionPanelClosed(true);
+      // 長押しピンをクリア
+      setPin(null);
+      setIsPinPanelOpen(false);
+      // POIを選択（一覧データでパネルを即座に表示）
+      setSelectedPoi(poi);
+      setSelectedPoiDetail(null);
+      setIsPoiPanelOpen(true);
+
+      // バックグラウンドで詳細を取得
+      const detail = await poiService.getPOIDetail(poi.id);
+      if (detail) {
+        setSelectedPoiDetail(detail);
+      }
+    },
+    [clear],
+  );
 
   // POIパネルを閉じる
   const handleClosePoiPanel = useCallback(() => {
@@ -211,14 +229,42 @@ export function MunicipalityMapView({
     [],
   );
 
-  // 長押しハンドラ
-  const handleLongPress = useCallback((coordinate: Coordinate) => {
-    // POI選択をクリア
-    setSelectedPoi(null);
-    setIsPoiPanelOpen(false);
-    // ピンを設置
-    setPin({ coordinate });
-    setIsPinPanelOpen(true);
+  // 長押しハンドラ（排他制御: 変換結果・POI選択をクリア）
+  const handleLongPress = useCallback(
+    (coordinate: Coordinate) => {
+      // 変換結果をクリア
+      clear();
+      setIsConversionPanelClosed(true);
+      // POI選択をクリア
+      setSelectedPoi(null);
+      setIsPoiPanelOpen(false);
+      // ピンを設置
+      setPin({ coordinate });
+      setIsPinPanelOpen(true);
+    },
+    [clear],
+  );
+
+  // 検索バーからの変換処理（排他制御: POI選択・ピンをクリア）
+  const handleConvert = useCallback(
+    async (input: string, source: "address" | "wgs84" | "tokyo") => {
+      // POI選択をクリア
+      setSelectedPoi(null);
+      setIsPoiPanelOpen(false);
+      // 長押しピンをクリア
+      setPin(null);
+      setIsPinPanelOpen(false);
+      // 変換パネルを閉じた状態をリセット
+      setIsConversionPanelClosed(false);
+
+      await convert(input, source);
+    },
+    [convert],
+  );
+
+  // 変換パネルを閉じる
+  const handleCloseConversionPanel = useCallback(() => {
+    setIsConversionPanelClosed(true);
   }, []);
 
   // ピンパネルを閉じる
@@ -226,50 +272,24 @@ export function MunicipalityMapView({
     setIsPinPanelOpen(false);
   }, []);
 
-  // ピンの座標を決定
-  const pinCoordinate = pin?.coordinate || null;
-
-  // 最終更新日を取得
-  const lastUpdatedAt = useMemo(() => {
-    const dates = layerStatuses
-      .filter((s) => s.lastImportedAt)
-      .map((s) => s.lastImportedAt!.getTime());
-    if (dates.length === 0) return null;
-    return new Date(Math.max(...dates));
-  }, [layerStatuses]);
+  // ピンの座標を決定（変換結果またはピン）
+  const pinCoordinate = result?.coordinates.wgs84 || pin?.coordinate || null;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* ヘッダー */}
-      <header className="bg-white shadow-sm z-20 relative">
-        <div className="max-w-4xl mx-auto px-4 py-3">
-          <h1 className="text-lg font-bold text-gray-900">
-            {municipality.seo.h1 ||
-              `${municipality.municipalityNameJa} 消防設備マップ`}
-          </h1>
-          <p className="text-xs text-gray-500">
-            {municipality.prefectureNameJa} {municipality.municipalityNameJa}
-            {lastUpdatedAt && (
-              <span className="ml-2">
-                最終更新: {lastUpdatedAt.toLocaleDateString("ja-JP")}
-              </span>
-            )}
-          </p>
-        </div>
-      </header>
-
+    <div className="min-h-screen bg-gray-50">
       {/* メインコンテンツ */}
-      <main className="flex-1 relative">
-        {/* 市町村情報（導入テキストがある場合） */}
-        {municipality.content.introText && (
-          <div className="absolute top-4 left-4 right-4 z-10 max-w-xl mx-auto">
-            <div className="bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-sm">
-              <p className="text-sm text-gray-700">
-                {municipality.content.introText}
-              </p>
+      <main className="h-screen relative">
+        {/* フローティング検索バー */}
+        <div className="absolute top-2 left-2 right-2 z-10 max-w-xl mx-auto">
+          <SearchBar onConvert={handleConvert} isLoading={isLoading} />
+
+          {/* エラー表示 */}
+          {error && (
+            <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-red-700 text-sm">{error}</p>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* マップ */}
         <div className="absolute inset-0">
@@ -289,8 +309,17 @@ export function MunicipalityMapView({
           />
         </div>
 
+        {/* 変換結果用スライドパネル */}
+        {result && !selectedPoi && (
+          <SlidePanel
+            conversionResult={result}
+            isOpen={isConversionPanelOpen}
+            onClose={handleCloseConversionPanel}
+          />
+        )}
+
         {/* 長押しピン用スライドパネル */}
-        {pin && (
+        {pin && !result && !selectedPoi && (
           <SlidePanel
             pin={{ coordinate: pin.coordinate, timestamp: new Date() }}
             isOpen={isPinPanelOpen}
@@ -308,17 +337,6 @@ export function MunicipalityMapView({
           />
         )}
       </main>
-
-      {/* 注意事項（ある場合） */}
-      {municipality.content.cautionText && (
-        <footer className="bg-amber-50 border-t border-amber-200 z-20 relative">
-          <div className="max-w-4xl mx-auto px-4 py-2">
-            <p className="text-xs text-amber-800">
-              {municipality.content.cautionText}
-            </p>
-          </div>
-        </footer>
-      )}
     </div>
   );
 }

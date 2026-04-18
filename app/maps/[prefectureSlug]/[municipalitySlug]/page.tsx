@@ -1,9 +1,6 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import {
-  getMunicipalityRepository,
-  getMunicipalityLayerStatusRepository,
-} from '@/lib/server/municipality';
+import { getMunicipalityRepository } from '@/lib/server/municipality';
 import { MunicipalityMapView } from '@/components/maps/MunicipalityMapView';
 
 interface PageProps {
@@ -80,15 +77,5 @@ export default async function MunicipalityPage({ params }: PageProps) {
     notFound();
   }
 
-  // レイヤー状態を取得（最終更新日など）
-  const layerStatuses = await getMunicipalityLayerStatusRepository().getAllLayerStatuses(
-    municipality.jisCode
-  );
-
-  return (
-    <MunicipalityMapView
-      municipality={municipality}
-      layerStatuses={layerStatuses}
-    />
-  );
+  return <MunicipalityMapView municipality={municipality} />;
 }
