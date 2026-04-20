@@ -7,7 +7,15 @@ import { DEFAULT_MAP_STATE, Coordinate, POIListItem, MapBounds, LayerVisibility,
 import { LayerToggleControl } from './LayerToggle';
 
 const LONG_PRESS_DURATION = 500; // ms
+const LOAD_TIMEOUT_MS = 15000; // 15秒でタイムアウト
 const POI_SOURCE_ID = 'poi-source';
+
+// エラー状態の型定義（テスト段階用の詳細情報付き）
+interface MapErrorState {
+  type: 'webgl' | 'timeout' | 'mapbox' | 'unknown';
+  message: string;
+  details?: string;
+}
 const AED_LAYER_ID = 'aed-layer';
 const FIRE_HYDRANT_LAYER_ID = 'fire-hydrant-layer';
 const FIRE_CISTERN_LAYER_ID = 'fire-cistern-layer';
@@ -294,6 +302,9 @@ export function MapView({
   const startPosition = useRef<{ x: number; y: number } | null>(null);
   const layerToggleRef = useRef<LayerToggleControl | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [mapError, setMapError] = useState<MapErrorState | null>(null);
+  const isMapReadyRef = useRef(false); // タイムアウト判定用
+  const loadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // 最新値を参照するためのref（useEffect依存配列を減らすため）
   const poisRef = useRef<POIListItem[]>(pois);
@@ -626,6 +637,24 @@ export function MapView({
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
     if (!token) {
       console.error('Mapbox token is not configured');
+      setMapError({
+        type: 'unknown',
+        message: 'Mapboxトークンが設定されていません',
+        details: '環境変数 NEXT_PUBLIC_MAPBOX_TOKEN を確認してください',
+      });
+      setIsMapReady(true);
+      return;
+    }
+
+    // WebGLサポートチェック
+    if (!mapboxgl.supported()) {
+      console.error('WebGL is not supported');
+      setMapError({
+        type: 'webgl',
+        message: 'WebGLがサポートされていません',
+        details: `UA: ${navigator.userAgent}`,
+      });
+      setIsMapReady(true);
       return;
     }
 
@@ -658,6 +687,19 @@ export function MapView({
 
     const map = new mapboxgl.Map(mapOptions);
     log('new mapboxgl.Map() 直後');
+
+    // タイムアウト処理: 15秒以内にloadイベントが発火しない場合はエラー表示
+    loadTimeoutRef.current = setTimeout(() => {
+      if (!isMapReadyRef.current) {
+        console.error('[MapView] Load timeout after ' + LOAD_TIMEOUT_MS + 'ms');
+        setMapError({
+          type: 'timeout',
+          message: '地図の読み込みがタイムアウトしました',
+          details: `経過時間: ${LOAD_TIMEOUT_MS}ms, UA: ${navigator.userAgent}`,
+        });
+        setIsMapReady(true);
+      }
+    }, LOAD_TIMEOUT_MS);
 
     // ナビゲーションコントロールを追加（右下に配置、スマホで検索バーと重ならないように）
     map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
@@ -716,9 +758,24 @@ export function MapView({
     map.on('touchmove', handleMove);
     map.on('touchcancel', clearLongPressTimer);
 
-    // エラー時のログ出力
+    // エラー時のログ出力と状態更新
     map.on('error', (e) => {
       console.error('[MapView] Mapbox error:', e.error);
+      // まだ読み込み完了していない場合のみエラー表示
+      if (!isMapReadyRef.current) {
+        const errorMessage = e.error?.message || JSON.stringify(e.error) || 'Unknown error';
+        setMapError({
+          type: 'mapbox',
+          message: 'Mapboxエラーが発生しました',
+          details: errorMessage,
+        });
+        setIsMapReady(true);
+        // タイムアウトをクリア
+        if (loadTimeoutRef.current) {
+          clearTimeout(loadTimeoutRef.current);
+          loadTimeoutRef.current = null;
+        }
+      }
     });
 
     // スタイル変更時にも日本語ラベルとPOIレイヤーを再適用
@@ -730,6 +787,12 @@ export function MapView({
     });
 
     map.once('load', () => {
+      // タイムアウトをクリア
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
+
       loadTime = performance.now() - t0;
       log('load');
 
@@ -827,6 +890,7 @@ export function MapView({
         });
       }
 
+      isMapReadyRef.current = true;
       setIsMapReady(true);
       log('onMapReady呼び出し');
       onMapReady?.(map);
@@ -856,6 +920,10 @@ export function MapView({
     // クリーンアップ
     return () => {
       clearLongPressTimer();
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
       if (markerRef.current) {
         markerRef.current.remove();
       }
@@ -874,11 +942,32 @@ export function MapView({
         className="w-full h-full"
         style={{ position: 'absolute', inset: 0 }}
       />
-      {!isMapReady && (
+      {!isMapReady && !mapError && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
           <div className="flex flex-col items-center gap-2">
             <div className="animate-spin h-8 w-8 border-4 border-blue-500 rounded-full border-t-transparent" />
             <span className="text-sm text-gray-500">地図を読み込み中...</span>
+          </div>
+        </div>
+      )}
+      {mapError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
+          <div className="flex flex-col items-center gap-4 p-4 text-center max-w-md">
+            <div className="text-red-500 text-lg font-bold">
+              地図読み込みエラー [{mapError.type}]
+            </div>
+            <div className="text-gray-700">{mapError.message}</div>
+            {mapError.details && (
+              <div className="text-xs text-gray-500 bg-gray-200 p-2 rounded break-all max-h-32 overflow-auto">
+                {mapError.details}
+              </div>
+            )}
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+            >
+              ページを再読み込み
+            </button>
           </div>
         </div>
       )}
