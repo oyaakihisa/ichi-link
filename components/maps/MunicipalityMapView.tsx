@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { SlidePanel } from "@/components/map/SlidePanel";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useConversion } from "@/components/hooks/useConversion";
+import { useMapInteraction } from "@/components/hooks/useMapInteraction";
 import type { Municipality } from "@/lib/types/municipality";
 import type {
   Coordinate,
@@ -94,12 +95,15 @@ export function MunicipalityMapView({
   );
   const [isPoiPanelOpen, setIsPoiPanelOpen] = useState(false);
 
-  // 長押しピン関連
-  const [pin, setPin] = useState<{
-    coordinate: Coordinate;
-    address?: string;
-  } | null>(null);
-  const [isPinPanelOpen, setIsPinPanelOpen] = useState(false);
+  // 長押しピン関連（useMapInteractionフックを使用）
+  const {
+    pin,
+    isPanelOpen: isPinPanelOpen,
+    isLoadingAddress,
+    handleLongPress: hookHandleLongPress,
+    closePanel: closePinPanel,
+    clearPin,
+  } = useMapInteraction();
 
   // デバウンス用のタイマー
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -198,8 +202,8 @@ export function MunicipalityMapView({
       clear();
       setIsConversionPanelClosed(true);
       // 長押しピンをクリア
-      setPin(null);
-      setIsPinPanelOpen(false);
+      closePinPanel();
+      clearPin();
       // POIを選択（一覧データでパネルを即座に表示）
       setSelectedPoi(poi);
       setSelectedPoiDetail(null);
@@ -211,7 +215,7 @@ export function MunicipalityMapView({
         setSelectedPoiDetail(detail);
       }
     },
-    [clear],
+    [clear, closePinPanel, clearPin],
   );
 
   // POIパネルを閉じる
@@ -238,11 +242,10 @@ export function MunicipalityMapView({
       // POI選択をクリア
       setSelectedPoi(null);
       setIsPoiPanelOpen(false);
-      // ピンを設置
-      setPin({ coordinate });
-      setIsPinPanelOpen(true);
+      // フックのhandleLongPressを呼び出し（逆ジオコーディング・Tokyo Datum変換を実行）
+      hookHandleLongPress(coordinate);
     },
-    [clear],
+    [clear, hookHandleLongPress],
   );
 
   // 検索バーからの変換処理（排他制御: POI選択・ピンをクリア）
@@ -252,24 +255,19 @@ export function MunicipalityMapView({
       setSelectedPoi(null);
       setIsPoiPanelOpen(false);
       // 長押しピンをクリア
-      setPin(null);
-      setIsPinPanelOpen(false);
+      closePinPanel();
+      clearPin();
       // 変換パネルを閉じた状態をリセット
       setIsConversionPanelClosed(false);
 
       await convert(input, source);
     },
-    [convert],
+    [convert, closePinPanel, clearPin],
   );
 
   // 変換パネルを閉じる
   const handleCloseConversionPanel = useCallback(() => {
     setIsConversionPanelClosed(true);
-  }, []);
-
-  // ピンパネルを閉じる
-  const handleClosePinPanel = useCallback(() => {
-    setIsPinPanelOpen(false);
   }, []);
 
   // ピンの座標を決定（変換結果またはピン）
@@ -321,9 +319,10 @@ export function MunicipalityMapView({
         {/* 長押しピン用スライドパネル */}
         {pin && !result && !selectedPoi && (
           <SlidePanel
-            pin={{ coordinate: pin.coordinate, timestamp: new Date() }}
+            pin={pin}
+            isLoadingAddress={isLoadingAddress}
             isOpen={isPinPanelOpen}
-            onClose={handleClosePinPanel}
+            onClose={closePinPanel}
           />
         )}
 
