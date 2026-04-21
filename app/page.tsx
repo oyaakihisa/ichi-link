@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { SlidePanel } from "@/components/map/SlidePanel";
+import { MapErrorBoundary } from "@/components/map/MapErrorBoundary";
 
 // MapView を遅延ロード（mapbox-gl を初期バンドルから分離）
 const MapView = dynamic(
@@ -233,18 +234,20 @@ export default function Home() {
 
         {/* マップ */}
         <div className="absolute inset-0">
-          <MapView
-            onLongPress={handleMapLongPress}
-            pinCoordinate={pinCoordinate}
-            flyToCoordinate={flyToCoordinate}
-            pois={pois}
-            selectedPoiId={selectedPoi?.id}
-            layerVisibility={layerVisibility}
-            availablePOITypes={availablePOITypes}
-            onPoiSelect={handlePoiSelect}
-            onLayerVisibilityChange={handleLayerVisibilityChange}
-            onMoveEnd={handleMoveEnd}
-          />
+          <MapErrorBoundary>
+            <MapView
+              onLongPress={handleMapLongPress}
+              pinCoordinate={pinCoordinate}
+              flyToCoordinate={flyToCoordinate}
+              pois={pois}
+              selectedPoiId={selectedPoi?.id}
+              layerVisibility={layerVisibility}
+              availablePOITypes={availablePOITypes}
+              onPoiSelect={handlePoiSelect}
+              onLayerVisibilityChange={handleLayerVisibilityChange}
+              onMoveEnd={handleMoveEnd}
+            />
+          </MapErrorBoundary>
         </div>
 
         {/* 変換結果用スライドパネル */}

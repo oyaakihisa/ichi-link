@@ -12,7 +12,7 @@ const POI_SOURCE_ID = 'poi-source';
 
 // エラー状態の型定義（テスト段階用の詳細情報付き）
 interface MapErrorState {
-  type: 'webgl' | 'timeout' | 'mapbox' | 'unknown';
+  type: 'webgl' | 'timeout' | 'mapbox' | 'init' | 'unknown';
   message: string;
   details?: string;
 }
@@ -685,8 +685,20 @@ export function MapView({
       mapOptions.fitBoundsOptions = { padding: 20 };
     }
 
-    const map = new mapboxgl.Map(mapOptions);
-    log('new mapboxgl.Map() 直後');
+    let map: mapboxgl.Map;
+    try {
+      map = new mapboxgl.Map(mapOptions);
+      log('new mapboxgl.Map() 直後');
+    } catch (error) {
+      console.error('[MapView] Map initialization error:', error);
+      setMapError({
+        type: 'init',
+        message: '地図の初期化に失敗しました',
+        details: `${error instanceof Error ? error.message : String(error)}, UA: ${navigator.userAgent}`,
+      });
+      setIsMapReady(true);
+      return;
+    }
 
     // タイムアウト処理: 15秒以内にloadイベントが発火しない場合はエラー表示
     loadTimeoutRef.current = setTimeout(() => {

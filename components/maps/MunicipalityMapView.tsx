@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { SlidePanel } from "@/components/map/SlidePanel";
+import { MapErrorBoundary } from "@/components/map/MapErrorBoundary";
 import { SearchBar } from "@/components/search/SearchBar";
 import { useConversion } from "@/components/hooks/useConversion";
 import { useMapInteraction } from "@/components/hooks/useMapInteraction";
@@ -291,20 +292,22 @@ export function MunicipalityMapView({
 
         {/* マップ */}
         <div className="absolute inset-0">
-          <MapView
-            onLongPress={handleLongPress}
-            pinCoordinate={pinCoordinate}
-            flyToCoordinate={flyToCoordinate}
-            pois={pois}
-            selectedPoiId={selectedPoi?.id}
-            layerVisibility={layerVisibility}
-            onPoiSelect={handlePoiSelect}
-            onLayerVisibilityChange={handleLayerVisibilityChange}
-            onMoveEnd={handleMoveEnd}
-            initialCenter={initialCenter}
-            initialZoom={municipality.map.initialZoom}
-            initialBounds={initialBounds}
-          />
+          <MapErrorBoundary>
+            <MapView
+              onLongPress={handleLongPress}
+              pinCoordinate={pinCoordinate}
+              flyToCoordinate={flyToCoordinate}
+              pois={pois}
+              selectedPoiId={selectedPoi?.id}
+              layerVisibility={layerVisibility}
+              onPoiSelect={handlePoiSelect}
+              onLayerVisibilityChange={handleLayerVisibilityChange}
+              onMoveEnd={handleMoveEnd}
+              initialCenter={initialCenter}
+              initialZoom={municipality.map.initialZoom}
+              initialBounds={initialBounds}
+            />
+          </MapErrorBoundary>
         </div>
 
         {/* 変換結果用スライドパネル */}
